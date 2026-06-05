@@ -2,6 +2,7 @@ import os
 import signal
 
 from ament_index_python.packages import get_package_share_directory
+from importlib.machinery import SourceFileLoader
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, EmitEvent, RegisterEventHandler
 from launch.conditions import IfCondition
@@ -12,6 +13,11 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from moveit_configs_utils import MoveItConfigsBuilder
+
+moveit_parameters = SourceFileLoader(
+    "moveit_launch_common",
+    os.path.join(os.path.dirname(__file__), "moveit_launch_common.py"),
+).load_module().moveit_parameters
 
 
 def generate_launch_description():
@@ -40,12 +46,13 @@ def generate_launch_description():
         .planning_pipelines(pipelines=["ompl"])
         .to_moveit_configs()
     )
+    moveit_params = moveit_parameters(moveit_config)
 
     move_group_node = Node(
         package="moveit_ros_move_group",
         executable="move_group",
         output="screen",
-        parameters=[moveit_config.to_dict()],
+        parameters=[moveit_params],
     )
 
     rviz_config = PathJoinSubstitution(
@@ -59,16 +66,10 @@ def generate_launch_description():
         package="rviz2",
         executable="rviz2",
         name="rviz2",
-        output="log",
+        output="screen",
         arguments=["-d", rviz_config],
         condition=IfCondition(LaunchConfiguration("use_rviz")),
-        parameters=[
-            moveit_config.robot_description,
-            moveit_config.robot_description_semantic,
-            moveit_config.planning_pipelines,
-            moveit_config.robot_description_kinematics,
-            moveit_config.joint_limits,
-        ],
+        parameters=[moveit_params],
     )
 
     static_tf_node = Node(
