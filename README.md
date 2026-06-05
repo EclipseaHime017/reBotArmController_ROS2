@@ -423,6 +423,9 @@ sudo apt update
 sudo apt install -y \
   ros-${ROS_DISTRO}-moveit \
   ros-${ROS_DISTRO}-moveit-configs-utils \
+  ros-${ROS_DISTRO}-moveit-kinematics \
+  ros-${ROS_DISTRO}-moveit-planners-ompl \
+  ros-${ROS_DISTRO}-moveit-simple-controller-manager \
   ros-${ROS_DISTRO}-ros2-control \
   ros-${ROS_DISTRO}-ros2-controllers \
   ros-${ROS_DISTRO}-xacro

@@ -447,11 +447,11 @@ ros2 service call /rebotarm/gripper/close rebotarm_msgs/srv/GripperCommand \
 std_srvs/srv/Trigger
 ```
 
-说明：启动 controller 内部重力补偿闭环。闭环直接使用底层 `RobotArm.get_positions/get_velocities/mit`，不通过外部 ROS topic 重写控制器。
+说明：启动 controller 内部重力补偿闭环。闭环直接使用底层 `RobotArm.get_positions/get_state/mit`，不通过外部 ROS topic 重写控制器。
 
 实现要点：
 
-- 进入 MIT 模式后调用 SDK `fresh()` 清理模式切换瞬态。
+- 进入 MIT 模式后锁定当前关节位置，并启动 controller 内部控制循环。
 - 使用 `compute_generalized_gravity(q)` 计算重力前馈。
 - 对多圈角度反馈做就近连续化，避免 `-4π` 类读数污染锁定目标。
 
