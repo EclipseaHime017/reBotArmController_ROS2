@@ -1,13 +1,10 @@
 import os
-import signal
-
 from importlib.machinery import SourceFileLoader
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, EmitEvent, RegisterEventHandler
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
-from launch.events import Shutdown, matches_action
-from launch.events.process import SignalProcess
+from launch.events import Shutdown
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
@@ -105,19 +102,6 @@ def generate_launch_description():
             robot_state_publisher_node,
             move_group_node,
             rviz_node,
-            RegisterEventHandler(
-                OnProcessExit(
-                    target_action=rviz_node,
-                    on_exit=[
-                        EmitEvent(
-                            event=SignalProcess(
-                                signal_number=signal.SIGINT,
-                                process_matcher=matches_action(move_group_node),
-                            )
-                        )
-                    ],
-                )
-            ),
             RegisterEventHandler(
                 OnProcessExit(
                     target_action=move_group_node,

@@ -1,6 +1,5 @@
 import os
 import signal
-
 from ament_index_python.packages import get_package_share_directory
 from importlib.machinery import SourceFileLoader
 from launch import LaunchDescription
@@ -142,19 +141,6 @@ def generate_launch_description():
             gripper_controller_spawner,
             move_group_node,
             rviz_node,
-            RegisterEventHandler(
-                OnProcessExit(
-                    target_action=rviz_node,
-                    on_exit=[
-                        EmitEvent(
-                            event=SignalProcess(
-                                signal_number=signal.SIGINT,
-                                process_matcher=matches_action(move_group_node),
-                            )
-                        )
-                    ],
-                )
-            ),
             RegisterEventHandler(
                 OnProcessExit(
                     target_action=move_group_node,

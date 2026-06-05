@@ -9,11 +9,13 @@ def moveit_parameters(moveit_config):
     if os.environ.get("ROS_DISTRO") == "humble":
         ompl["request_adapters"] = " ".join(
             [
+                "default_planner_request_adapters/AddTimeOptimalParameterization",
                 "default_planner_request_adapters/ResolveConstraintFrames",
                 "default_planner_request_adapters/FixWorkspaceBounds",
                 "default_planner_request_adapters/FixStartStateBounds",
                 "default_planner_request_adapters/FixStartStateCollision",
             ]
         )
+        ompl.pop("response_adapters", None)
 
     return parameters
