@@ -47,8 +47,7 @@ class ArmActions:
         return GoalResponse.ACCEPT
 
     def cancel_move_to_pose(self, _goal_handle):
-        self._hardware.endpos_ctrl._stop_send.set()
-        self._hardware.endpos_ctrl._moving = False
+        self._hardware.stop_motion()
         return CancelResponse.ACCEPT
 
     def cancel_follow_joint_trajectory(self, _goal_handle):
@@ -63,6 +62,8 @@ class ArmActions:
 
         try:
             self._hardware.start_endpos_control()
+            self._hardware.set_state_machine("TRAJ_RUNNING")
+            self._node.publish_arm_status()
             x, y, z, roll, pitch, yaw = pose_to_xyz_rpy(goal.target_pose)
             ok = self._hardware.endpos_ctrl.move_to_traj(
                 x,
@@ -75,6 +76,7 @@ class ArmActions:
             )
         except Exception as exc:
             self._hardware.hold_current_position()
+            self._hardware.set_state_machine("IDLE")
             self._node.publish_arm_status()
             goal_handle.abort()
             result.success = False
@@ -83,12 +85,37 @@ class ArmActions:
             return result
 
         if not ok:
+            self._hardware.set_state_machine("IDLE")
             self._node.publish_arm_status()
             goal_handle.abort()
             result.success = False
             result.message = "trajectory planning failed"
             result.final_pose = self._hardware.current_pose()
             return result
+
+        deadline = time.monotonic() + max(float(goal.duration), 0.0) + 2.0
+        while self._hardware.motion_active():
+            if goal_handle.is_cancel_requested:
+                self._hardware.stop_motion()
+                self._hardware.hold_current_position()
+                self._hardware.set_state_machine("IDLE")
+                self._node.publish_arm_status()
+                goal_handle.canceled()
+                result.success = False
+                result.message = "move_to_pose canceled"
+                result.final_pose = self._hardware.current_pose()
+                return result
+            if time.monotonic() > deadline:
+                self._hardware.stop_motion()
+                self._hardware.hold_current_position()
+                self._hardware.set_state_machine("IDLE")
+                self._node.publish_arm_status()
+                goal_handle.abort()
+                result.success = False
+                result.message = "move_to_pose timeout"
+                result.final_pose = self._hardware.current_pose()
+                return result
+            time.sleep(0.02)
 
         positions = self._hardware.get_joint_positions()
         velocities = self._hardware.get_joint_velocities()
@@ -99,6 +126,7 @@ class ArmActions:
             f"velocities={[float(v) for v in velocities]}"
         )
         result.final_pose = self._hardware.current_pose()
+        self._hardware.set_state_machine("IDLE")
         self._node.publish_arm_status()
         goal_handle.succeed()
         return result
@@ -130,10 +158,10 @@ class ArmActions:
             result.error_string = "point positions length must match joint_names"
             return result
 
-        self._hardware.set_state_machine("TRAJ_RUNNING")
-        self._node.publish_arm_status()
         try:
             self._hardware.start_endpos_control()
+            self._hardware.set_state_machine("TRAJ_RUNNING")
+            self._node.publish_arm_status()
             start = time.monotonic()
             point_times = [
                 float(point.time_from_start.sec)

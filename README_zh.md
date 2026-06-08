@@ -261,7 +261,7 @@ ros2 action send_goal /rebotarm/move_to_pose rebotarm_msgs/action/MoveToPose \
   "{target_pose: {position: {x: 0.30, y: 0.0, z: 0.30}, orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}}, duration: 2.0}"
 ```
 
-`move_to_pose` action 内部会确保进入 `pos_vel` 控制，并直接调用 SDK `ArmEndPos.move_to_traj(...)`。
+`move_to_pose` action 内部会确保进入 `pos_vel` 控制，并通过 SDK `RebotArmEndPose.move_to_traj(...)` 执行。
 
 3. 闭合夹爪并回到安全零位：
 
@@ -381,17 +381,16 @@ q / quit    退出
 
 | 文件 | 说明 |
 |---|---|
-| `arm.yaml` | 机械臂 6 个关节的电机、反馈 ID、控制参数 |
-| `gripper.yaml` | 夹爪电机配置，包含电机 ID、反馈 ID、厂商、MIT/POS_VEL 参数 |
+| `rebotarm_hardware.yaml` | ROS2 上层硬件选择和覆盖配置，可选择 DM / RS 并覆盖 SDK 参数 |
 | `driver_params.yaml` | ROS 参数示例 |
 
 常用 launch 参数：
 
 | 参数 | 默认值 | 说明 |
 |---|---|---|
-| `arm_config` | bringup 内置 `arm.yaml` | 机械臂配置路径 |
-| `gripper_config` | bringup 内置 `gripper.yaml` | 夹爪配置路径 |
-| `channel` | 空字符串 | 留空使用 YAML，非空时覆盖串口 |
+| `hardware_config` | bringup 内置 `rebotarm_hardware.yaml` | ROS2 上层硬件配置路径 |
+| `model` | 空字符串 | 留空使用 `default_model`，可设为 `dm` 或 `rs` |
+| `channel` | 空字符串 | 留空使用 YAML，非空时覆盖通信通道 |
 | `joint_state_rate` | `100.0` | `/rebotarm/joint_states` 发布频率 |
 | `cmd_arbitration` | `reject` | 轨迹运行中 arm joint 低层 cmd 仲裁，`reject` 或 `preempt`；gripper 低层 cmd 不抢占 arm 轨迹 |
 | `arm_namespace` | `rebotarm` | ROS 命名空间前缀 |

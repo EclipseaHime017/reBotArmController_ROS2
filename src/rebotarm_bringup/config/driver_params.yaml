@@ -3,6 +3,8 @@ reBotArmController:
     arm_namespace: rebotarm
     joint_state_rate: 100.0
     cmd_arbitration: reject
+    hardware_config: ""
+    model: ""
     channel: ""
     frame_id: base_link
     ee_frame_id: end_link

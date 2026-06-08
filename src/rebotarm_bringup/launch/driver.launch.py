@@ -8,8 +8,8 @@ from launch_ros.substitutions import FindPackageShare
 
 def generate_launch_description():
     bringup_share = FindPackageShare("rebotarm_bringup")
-    arm_config = LaunchConfiguration("arm_config")
-    gripper_config = LaunchConfiguration("gripper_config")
+    hardware_config = LaunchConfiguration("hardware_config")
+    model = LaunchConfiguration("model")
     channel = LaunchConfiguration("channel")
     joint_state_rate = LaunchConfiguration("joint_state_rate")
     cmd_arbitration = LaunchConfiguration("cmd_arbitration")
@@ -20,13 +20,12 @@ def generate_launch_description():
     return LaunchDescription(
         [
             DeclareLaunchArgument(
-                "arm_config",
-                default_value=PathJoinSubstitution([bringup_share, "config", "arm.yaml"]),
+                "hardware_config",
+                default_value=PathJoinSubstitution(
+                    [bringup_share, "config", "rebotarm_hardware.yaml"]
+                ),
             ),
-            DeclareLaunchArgument(
-                "gripper_config",
-                default_value=PathJoinSubstitution([bringup_share, "config", "gripper.yaml"]),
-            ),
+            DeclareLaunchArgument("model", default_value=""),
             DeclareLaunchArgument("channel", default_value=""),
             DeclareLaunchArgument("joint_state_rate", default_value="100.0"),
             DeclareLaunchArgument("cmd_arbitration", default_value="reject"),
@@ -40,8 +39,8 @@ def generate_launch_description():
                 output="screen",
                 parameters=[
                     {
-                        "arm_config": arm_config,
-                        "gripper_config": gripper_config,
+                        "hardware_config": hardware_config,
+                        "model": model,
                         "channel": channel,
                         "joint_state_rate": joint_state_rate,
                         "cmd_arbitration": cmd_arbitration,

@@ -2,6 +2,10 @@ from glob import glob
 from setuptools import setup
 
 package_name = "rebotarm_bringup"
+config_files = [
+    "config/driver_params.yaml",
+    "config/rebotarm_hardware.yaml",
+]
 
 setup(
     name=package_name,
@@ -11,7 +15,7 @@ setup(
         ("share/ament_index/resource_index/packages", [f"resource/{package_name}"]),
         (f"share/{package_name}", ["package.xml"]),
         (f"share/{package_name}/launch", glob("launch/*.launch.py")),
-        (f"share/{package_name}/config", glob("config/*.yaml")),
+        (f"share/{package_name}/config", config_files),
         (f"share/{package_name}/description/urdf", glob("description/urdf/*.urdf")),
         (f"share/{package_name}/description/meshes", glob("description/meshes/*")),
         (

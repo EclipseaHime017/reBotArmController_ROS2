@@ -113,7 +113,7 @@ class ArmServices:
         except Exception as exc:
             response.success = False
             response.message = str(exc)
-        self._node.publish_arm_status()
+        self._node.publish_arm_status(read_hardware=False)
         return response
 
     def safe_home(self, _request, response):

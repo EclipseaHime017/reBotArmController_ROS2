@@ -106,7 +106,7 @@ class JointStatePublisher:
 
         self._publisher.publish(msg)
 
-    def publish_status(self) -> None:
+    def publish_status(self, *, read_hardware: bool = True) -> None:
         msg = ArmStatus()
         msg.header.stamp = self._node.get_clock().now().to_msg()
         msg.mode = self._hardware.mode
@@ -114,6 +114,9 @@ class JointStatePublisher:
         msg.control_loop_active = self._hardware.control_loop_active
         msg.state_machine = self._hardware.state_machine
         msg.joint_names = self._hardware.joint_names
-        msg.per_joint_status_code = self._hardware.get_joint_status_codes()
+        if read_hardware:
+            msg.per_joint_status_code = self._hardware.get_joint_status_codes()
+        else:
+            msg.per_joint_status_code = [0 for _ in self._hardware.joint_names]
         msg.error_codes = self._hardware.error_codes
         self._status_publisher.publish(msg)

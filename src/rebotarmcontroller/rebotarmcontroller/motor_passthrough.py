@@ -152,6 +152,5 @@ class MotorPassthrough:
             self._node.get_logger().warn(
                 f"preempting trajectory for {label}"
             )
-            self._hardware.endpos_ctrl._stop_send.set()
-            self._hardware.endpos_ctrl._moving = False
+            self._hardware.stop_motion()
         return True

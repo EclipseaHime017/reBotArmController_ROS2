@@ -262,8 +262,8 @@ ros2 action send_goal /rebotarm/move_to_pose rebotarm_msgs/action/MoveToPose \
   "{target_pose: {position: {x: 0.30, y: 0.0, z: 0.30}, orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}}, duration: 2.0}"
 ```
 
-`move_to_pose` switches to `pos_vel` mode internally and calls
-`ArmEndPos.move_to_traj(...)` from the SDK.
+`move_to_pose` switches to `pos_vel` mode internally and executes through
+`RebotArmEndPose.move_to_traj(...)` from the SDK.
 
 3. Close the gripper and return to safe home:
 
@@ -370,17 +370,16 @@ It includes:
 
 | File | Description |
 |---|---|
-| `arm.yaml` | Motor, feedback ID and control parameters for the 6 arm joints |
-| `gripper.yaml` | Gripper motor config, including motor ID, feedback ID and control parameters |
+| `rebotarm_hardware.yaml` | ROS2 hardware selection and overrides for DM / RS SDK configs |
 | `driver_params.yaml` | ROS parameter example |
 
 Common launch parameters:
 
 | Parameter | Default | Description |
 |---|---|---|
-| `arm_config` | built-in `arm.yaml` | Arm config path |
-| `gripper_config` | built-in `gripper.yaml` | Gripper config path |
-| `channel` | empty string | Use YAML value when empty; override serial device when set |
+| `hardware_config` | built-in `rebotarm_hardware.yaml` | ROS2 hardware config path |
+| `model` | empty string | Use `default_model` when empty; set `dm` or `rs` explicitly |
+| `channel` | empty string | Use YAML value when empty; override communication channel when set |
 | `joint_state_rate` | `100.0` | Publish rate for `/rebotarm/joint_states` |
 | `cmd_arbitration` | `reject` | Low-level command arbitration during arm trajectory execution |
 | `arm_namespace` | `rebotarm` | ROS namespace prefix |
