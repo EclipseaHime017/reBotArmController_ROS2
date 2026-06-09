@@ -1,7 +1,12 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, Shutdown
 from launch.conditions import IfCondition
-from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import (
+    Command,
+    LaunchConfiguration,
+    PathJoinSubstitution,
+    PythonExpression,
+)
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
@@ -22,7 +27,18 @@ def generate_launch_description():
     disable_after_safe_home = LaunchConfiguration("disable_after_safe_home")
 
     urdf_file = PathJoinSubstitution(
-        [bringup_share, "description", "urdf", "reBot-DevArm_fixend.urdf"]
+        [
+            bringup_share,
+            "description",
+            "urdf",
+            PythonExpression(
+                [
+                    "'00-arm-rs_asm-v3.urdf' if '",
+                    model,
+                    "'.lower() == 'rs' else 'reBot-DevArm_fixend.urdf'",
+                ]
+            ),
+        ]
     )
     rviz_config = PathJoinSubstitution([bringup_share, "rviz", "rebotarm.rviz"])
     robot_description = ParameterValue(Command(["cat ", urdf_file]), value_type=str)

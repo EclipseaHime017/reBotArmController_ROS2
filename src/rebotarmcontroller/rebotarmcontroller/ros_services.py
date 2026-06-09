@@ -1,20 +1,14 @@
 from __future__ import annotations
 
-import math
-
 from rebotarm_msgs.srv import (
     GripperCommand,
     MoveToPoseIK,
     SetGripper,
-    SetMode,
     SetZero,
 )
 from std_srvs.srv import Trigger
 
 from .conversions import pose_to_xyz_rpy
-
-_GRIPPER_OPEN_POSITION = -4.9
-_GRIPPER_CLOSE_POSITION = 0.0
 
 
 class ArmServices:
@@ -57,12 +51,6 @@ class ArmServices:
             SetZero,
             self._service("set_zero"),
             self.set_zero,
-            callback_group=node.slow_group,
-        )
-        node.create_service(
-            SetMode,
-            self._service("set_mode"),
-            self.set_mode,
             callback_group=node.slow_group,
         )
         node.create_service(
@@ -130,14 +118,7 @@ class ArmServices:
     def start_gravity_compensation(self, _request, response):
         try:
             self._hardware.start_gravity_compensation()
-            target = self._hardware.gravity_compensation_target()
-            if target is not None:
-                deg = ", ".join(f"{math.degrees(float(v)):+.1f}" for v in target)
-                self._node.get_logger().info(
-                    f"gravity compensation started, lock target deg=[{deg}]"
-                )
-            else:
-                self._node.get_logger().info("gravity compensation started")
+            self._node.get_logger().info("gravity compensation started")
             response.success = True
             response.message = "gravity compensation started"
         except Exception as exc:
@@ -170,18 +151,6 @@ class ArmServices:
             ok = self._hardware.set_zero(request.joint_name)
             response.success = bool(ok)
             response.message = "set_zero complete" if ok else "set_zero failed"
-        except Exception as exc:
-            response.success = False
-            response.message = str(exc)
-        self._node.publish_arm_status()
-        return response
-
-    def set_mode(self, request, response):
-        try:
-            self._hardware.stop_gravity_compensation()
-            ok = self._hardware.set_mode(request.mode)
-            response.success = bool(ok)
-            response.message = f"mode set to {request.mode}" if ok else "mode switch incomplete"
         except Exception as exc:
             response.success = False
             response.message = str(exc)
@@ -229,7 +198,7 @@ class ArmServices:
     def open_gripper(self, request, response):
         try:
             target = (
-                _GRIPPER_OPEN_POSITION
+                self._hardware.gripper_open_position
                 if request.position == 0.0
                 else float(request.position)
             )
@@ -252,7 +221,7 @@ class ArmServices:
     def close_gripper(self, request, response):
         try:
             target = (
-                _GRIPPER_CLOSE_POSITION
+                self._hardware.gripper_close_position
                 if request.position == 0.0
                 else float(request.position)
             )

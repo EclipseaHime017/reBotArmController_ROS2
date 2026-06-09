@@ -60,10 +60,6 @@ def main() -> None:
         Trigger,
         f"/{_NAMESPACE}/gravity_compensation/start",
     )
-    stop_client = node.create_client(
-        Trigger,
-        f"/{_NAMESPACE}/gravity_compensation/stop",
-    )
     safe_home_client = node.create_client(
         Trigger,
         f"/{_NAMESPACE}/safe_home",
@@ -86,10 +82,6 @@ def main() -> None:
         while rclpy.ok() and not stop_requested:
             rclpy.spin_once(node, timeout_sec=0.2)
     finally:
-        try:
-            _call_trigger(node, stop_client, "stop gravity compensation")
-        except Exception as exc:
-            node.get_logger().warn(f"stop gravity compensation cleanup failed: {exc}")
         try:
             _call_trigger(node, safe_home_client, "safe_home", timeout_sec=35.0)
         except Exception as exc:

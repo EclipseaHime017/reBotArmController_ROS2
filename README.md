@@ -50,11 +50,11 @@ The workspace contains five ROS2 packages:
 ## Features
 
 - Publishes arm status: `/rebotarm/joint_states`, `/rebotarm/arm_status`
-- Provides core services: `enable`, `disable`, `set_mode`, `set_zero`, `safe_home`
+- Provides core services: `enable`, `disable`, `set_zero`, `safe_home`
 - Supports Cartesian targets: `MoveToPoseIK` service, `MoveToPose` action
 - Supports the standard `control_msgs/action/FollowJointTrajectory` interface
 - Supports gripper control: `SetGripper` service, `GripperCommand` action
-- Supports single-joint commands: `JointMitCmd`, `JointPosVelCmd`, `JointVelCmd`
+- Supports single-joint commands: `JointMitCmd`, `JointPosVelCmd`
 
 ---
 

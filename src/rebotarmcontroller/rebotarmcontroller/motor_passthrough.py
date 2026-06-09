@@ -4,7 +4,6 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy
 from rebotarm_msgs.msg import (
     JointMitCmd,
     JointPosVelCmd,
-    JointVelCmd,
 )
 
 
@@ -38,11 +37,6 @@ class MotorPassthrough:
                     msg.vlim,
                 ),
             ),
-            (
-                JointVelCmd,
-                "cmd/vel",
-                lambda hw, name, msg: hw.send_joint_vel_cmd(name, msg.vel),
-            ),
         )
         gripper_commands = (
             (
@@ -60,11 +54,6 @@ class MotorPassthrough:
                 JointPosVelCmd,
                 "cmd/pos_vel",
                 lambda hw, msg: hw.send_gripper_pos_vel_cmd(msg.pos, msg.vlim),
-            ),
-            (
-                JointVelCmd,
-                "cmd/vel",
-                lambda hw, msg: hw.send_gripper_vel_cmd(msg.vel),
             ),
         )
 
