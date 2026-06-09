@@ -49,13 +49,13 @@ class MoveItDemoBase:
         return Duration(sec=int(seconds), nanosec=int((seconds % 1.0) * 1_000_000_000))
 
     def wait_for_execute_server(self) -> bool:
-        if self._execute.wait_for_server(timeout_sec=10.0):
+        if self._execute.wait_for_server(timeout_sec=30.0):
             return True
         self.node.get_logger().error("MoveIt action /execute_trajectory is not available")
         return False
 
     def wait_for_ik_service(self) -> bool:
-        if self._ik.wait_for_service(timeout_sec=10.0):
+        if self._ik.wait_for_service(timeout_sec=30.0):
             return True
         self.node.get_logger().error("MoveIt service /compute_ik is not available")
         return False

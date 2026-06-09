@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="rebotarm_rs">
+  <xacro:arg name="initial_positions_file" default="$(find rebotarm_moveit_config)/config/initial_positions.yaml"/>
+
+  <xacro:include filename="$(find rebotarm_bringup)/description/urdf/00-arm-rs_asm-v3.urdf"/>
+  <xacro:include filename="$(find rebotarm_moveit_config)/config/rebotarm_rs.ros2_control.xacro"/>
+
+  <link name="gripper_tcp"/>
+  <joint name="gripper_tcp_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <parent link="gripper_end"/>
+    <child link="gripper_tcp"/>
+  </joint>
+
+  <xacro:rebotarm_rs_ros2_control name="RebotArmMockSystem" initial_positions_file="$(arg initial_positions_file)"/>
+</robot>
