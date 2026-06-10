@@ -28,6 +28,7 @@ pick_place:
       - gripper_joint2
     max_gripper_width: 0.09
     open_gripper_position: 0.045
+    grasp_gripper_position: 0.017
     closed_gripper_position: 0.0
     hardware_open_gripper_position: -5.0
     hardware_closed_gripper_position: 0.0

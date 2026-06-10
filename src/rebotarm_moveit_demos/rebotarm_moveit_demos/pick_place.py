@@ -227,6 +227,8 @@ class PickPlace(MoveItDemoBase):
 
         if mode == "open":
             position = self._open_gripper_position()
+        elif mode == "grasp":
+            position = self._grasp_gripper_position()
         else:
             position = self._closed_gripper_position()
 
@@ -300,6 +302,9 @@ class PickPlace(MoveItDemoBase):
 
     def _closed_gripper_position(self) -> float:
         return self._clamp_gripper_width(float(self._param("closed_gripper_position")))
+
+    def _grasp_gripper_position(self) -> float:
+        return self._clamp_gripper_width(float(self._param("grasp_gripper_position")))
 
     def _clamp_gripper_width(self, position: float) -> float:
         low = float(self._param("closed_gripper_position"))
