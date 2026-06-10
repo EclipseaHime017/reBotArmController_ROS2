@@ -29,7 +29,6 @@ class reBotArmController(Node):
         self.declare_parameter("cmd_arbitration", "reject")
         self.declare_parameter("frame_id", "base_link")
         self.declare_parameter("ee_frame_id", "end_link")
-        self.declare_parameter("safe_home_on_shutdown", True)
         self.declare_parameter("disable_after_safe_home", True)
 
         hardware_config = self.get_parameter("hardware_config").value or None
@@ -38,9 +37,6 @@ class reBotArmController(Node):
         self.arm_namespace = str(self.get_parameter("arm_namespace").value or "rebotarm").strip("/")
         joint_state_rate = float(self.get_parameter("joint_state_rate").value)
         cmd_arbitration = str(self.get_parameter("cmd_arbitration").value or "reject")
-        self.safe_home_on_shutdown = bool(
-            self.get_parameter("safe_home_on_shutdown").value
-        )
         self.disable_after_safe_home = bool(
             self.get_parameter("disable_after_safe_home").value
         )
@@ -82,7 +78,6 @@ class reBotArmController(Node):
 
     def shutdown(self) -> None:
         self.hardware.shutdown(
-            safe_home=self.safe_home_on_shutdown,
             disable_after_safe_home=self.disable_after_safe_home,
         )
 

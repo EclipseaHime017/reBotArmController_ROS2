@@ -23,7 +23,6 @@ def generate_launch_description():
     use_rviz = LaunchConfiguration("use_rviz")
     frame_id = LaunchConfiguration("frame_id")
     ee_frame_id = LaunchConfiguration("ee_frame_id")
-    safe_home_on_shutdown = LaunchConfiguration("safe_home_on_shutdown")
     disable_after_safe_home = LaunchConfiguration("disable_after_safe_home")
 
     urdf_file = PathJoinSubstitution(
@@ -59,7 +58,6 @@ def generate_launch_description():
             DeclareLaunchArgument("use_rviz", default_value="false"),
             DeclareLaunchArgument("frame_id", default_value="base_link"),
             DeclareLaunchArgument("ee_frame_id", default_value="end_link"),
-            DeclareLaunchArgument("safe_home_on_shutdown", default_value="true"),
             DeclareLaunchArgument("disable_after_safe_home", default_value="true"),
             Node(
                 package="rebotarmcontroller",
@@ -77,10 +75,6 @@ def generate_launch_description():
                         "arm_namespace": arm_namespace,
                         "frame_id": frame_id,
                         "ee_frame_id": ee_frame_id,
-                        "safe_home_on_shutdown": ParameterValue(
-                            safe_home_on_shutdown,
-                            value_type=bool,
-                        ),
                         "disable_after_safe_home": ParameterValue(
                             disable_after_safe_home,
                             value_type=bool,

@@ -154,19 +154,11 @@ class HardwareManager:
                 self._enabled = False
             raise
 
-    def shutdown(
-        self,
-        safe_home: bool = True,
-        disable_after_safe_home: bool = True,
-    ) -> None:
+    def shutdown(self, disable_after_safe_home: bool = True) -> None:
         if not self._connected:
             return
         try:
-            if safe_home:
-                self.safe_home()
-            else:
-                self.stop_gravity_compensation()
-
+            self.safe_home()
             self.stop_motion()
             self._robot.stop_control_loop()
 

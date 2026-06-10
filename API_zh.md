@@ -1,6 +1,6 @@
 # reBotArm ROS2 API Reference
 
-适用版本：`v0.2.3`
+适用版本：`v0.3.0`
 
 本文档是 `rebotarm_ros2` 的 ROS2 API 参考文档。它面向二次开发、上层规划、视觉抓取、调试工具和脚本集成，按主流 API 文档习惯组织为：约定、Topic、Service、Action、低层 Command、消息定义、调用示例和集成注意事项。
 

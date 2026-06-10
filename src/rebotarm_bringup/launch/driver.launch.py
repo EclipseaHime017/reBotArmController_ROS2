@@ -14,7 +14,6 @@ def generate_launch_description():
     joint_state_rate = LaunchConfiguration("joint_state_rate")
     cmd_arbitration = LaunchConfiguration("cmd_arbitration")
     arm_namespace = LaunchConfiguration("arm_namespace")
-    safe_home_on_shutdown = LaunchConfiguration("safe_home_on_shutdown")
     disable_after_safe_home = LaunchConfiguration("disable_after_safe_home")
 
     return LaunchDescription(
@@ -30,7 +29,6 @@ def generate_launch_description():
             DeclareLaunchArgument("joint_state_rate", default_value="100.0"),
             DeclareLaunchArgument("cmd_arbitration", default_value="reject"),
             DeclareLaunchArgument("arm_namespace", default_value="rebotarm"),
-            DeclareLaunchArgument("safe_home_on_shutdown", default_value="true"),
             DeclareLaunchArgument("disable_after_safe_home", default_value="true"),
             Node(
                 package="rebotarmcontroller",
@@ -45,10 +43,6 @@ def generate_launch_description():
                         "joint_state_rate": joint_state_rate,
                         "cmd_arbitration": cmd_arbitration,
                         "arm_namespace": arm_namespace,
-                        "safe_home_on_shutdown": ParameterValue(
-                            safe_home_on_shutdown,
-                            value_type=bool,
-                        ),
                         "disable_after_safe_home": ParameterValue(
                             disable_after_safe_home,
                             value_type=bool,
