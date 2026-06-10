@@ -66,11 +66,7 @@ def _launch_setup(context, *args, **kwargs):
         .robot_description_kinematics(file_path="config/kinematics.yaml")
         .joint_limits(file_path="config/joint_limits.yaml")
         .trajectory_execution(
-            file_path=(
-                "config/moveit_controllers_rs.yaml"
-                if is_rs
-                else "config/moveit_controllers.yaml"
-            )
+            file_path="config/moveit_controllers.yaml"
         )
         .planning_scene_monitor(
             publish_robot_description=True,
@@ -124,7 +120,7 @@ def _launch_setup(context, *args, **kwargs):
     ros2_controllers_path = os.path.join(
         get_package_share_directory("rebotarm_moveit_config"),
         "config",
-        "ros2_controllers_rs.yaml" if is_rs else "ros2_controllers.yaml",
+        "ros2_controllers.yaml",
     )
     ros2_control_node = Node(
         package="controller_manager",
@@ -170,8 +166,7 @@ def _launch_setup(context, *args, **kwargs):
         joint_state_broadcaster_spawner,
         rebotarm_controller_spawner,
     ]
-    if not is_rs:
-        nodes.append(gripper_controller_spawner)
+    nodes.append(gripper_controller_spawner)
     nodes.extend(
         [
             move_group_node,

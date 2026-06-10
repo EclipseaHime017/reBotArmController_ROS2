@@ -9,7 +9,7 @@ pick_place:
       - joint5
       - joint6
     zero_point: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    ready_point: [0.0, -0.75, -0.55, 0.0, 0.0, 0.0]
+    ready_point: [0.0, 0.75, 0.55, 0.0, 0.0, 0.0]
 
     planning_time: 5.0
     ik_timeout: 5.0
@@ -29,20 +29,20 @@ pick_place:
     max_gripper_width: 0.09
     open_gripper_position: 0.045
     closed_gripper_position: 0.0
-    hardware_open_gripper_position: -5.0
+    hardware_open_gripper_position: 5.0
     hardware_closed_gripper_position: 0.0
     gripper_motion_duration: 1.0
     gripper_max_effort: 10.0
 
     object_id: demo_object
     object_frame_id: base_link
-    pick_position: [0.30, 0.12, 0.03]
-    pick_tcp_rpy: [0.0, 0.7854, 0.0]
-    place_tcp_rpy: [0.0, 0.7854, 0.0]
+    pick_position: [0.28, 0.10, 0.0]
+    pick_tcp_rpy: [0.0, 1.57, 0.0]
+    place_tcp_rpy: [0.0, 1.57, 0.0]
     object_dimensions: [0.03, 0.03, 0.06]
     attached_link_name: gripper_tcp
     touch_links:
-      - gripper_link
+      - gripper_end
       - gripper_tcp
       - gripper_left
       - gripper_right

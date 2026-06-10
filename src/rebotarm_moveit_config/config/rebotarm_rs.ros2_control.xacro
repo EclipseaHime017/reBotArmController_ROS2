@@ -62,6 +62,24 @@
           <param name="initial_value">0.0</param>
         </state_interface>
       </joint>
+      <joint name="gripper_joint1">
+        <command_interface name="position"/>
+        <state_interface name="position">
+          <param name="initial_value">${initial_positions['gripper_joint1']}</param>
+        </state_interface>
+        <state_interface name="velocity">
+          <param name="initial_value">0.0</param>
+        </state_interface>
+      </joint>
+      <joint name="gripper_joint2">
+        <command_interface name="position"/>
+        <state_interface name="position">
+          <param name="initial_value">${initial_positions['gripper_joint2']}</param>
+        </state_interface>
+        <state_interface name="velocity">
+          <param name="initial_value">0.0</param>
+        </state_interface>
+      </joint>
     </ros2_control>
   </xacro:macro>
 </robot>

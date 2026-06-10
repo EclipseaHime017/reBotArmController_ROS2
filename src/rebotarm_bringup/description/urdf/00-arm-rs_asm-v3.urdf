@@ -738,8 +738,8 @@
     </collision>
   </link>
   <joint
-    name="joint_left"
-    type="fixed">
+    name="gripper_joint1"
+    type="prismatic">
     <origin
       xyz="-0.041939 -7.3385E-05 0"
       rpy="1.5708 -1.5708 0" />
@@ -824,8 +824,8 @@
     </collision>
   </link>
   <joint
-    name="joint_right"
-    type="fixed">
+    name="gripper_joint2"
+    type="prismatic">
     <origin
       xyz="-0.041939 7.3385E-05 0"
       rpy="-1.5708 -1.5708 0" />
