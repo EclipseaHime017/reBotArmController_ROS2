@@ -20,8 +20,8 @@ class ArmActions:
             MoveToPose,
             f"/{namespace}/move_to_pose",
             execute_callback=self.execute_move_to_pose,
-            goal_callback=self.goal_callback,
-            cancel_callback=self.cancel_move_to_pose,
+            goal_callback=self.arm_goal_callback,
+            cancel_callback=self.cancel_callback,
             callback_group=node.reentrant_group,
         )
         self._follow_joint_trajectory_server = ActionServer(
@@ -29,8 +29,8 @@ class ArmActions:
             FollowJointTrajectory,
             f"/{namespace}/follow_joint_trajectory",
             execute_callback=self.execute_follow_joint_trajectory,
-            goal_callback=self.goal_callback,
-            cancel_callback=self.cancel_follow_joint_trajectory,
+            goal_callback=self.arm_goal_callback,
+            cancel_callback=self.cancel_callback,
             callback_group=node.reentrant_group,
         )
         self._gripper_command_server = ActionServer(
@@ -38,84 +38,84 @@ class ArmActions:
             GripperCommand,
             f"/{namespace}/gripper/command",
             execute_callback=self.execute_gripper_command,
-            goal_callback=self.goal_callback,
-            cancel_callback=self.cancel_gripper_command,
+            goal_callback=self.gripper_goal_callback,
+            cancel_callback=self.cancel_callback,
             callback_group=node.reentrant_group,
         )
 
-    def goal_callback(self, _goal_request):
+    def arm_goal_callback(self, _goal_request):
+        return self._gate_goal(
+            ("TRAJ_RUNNING", "GRAVITY_COMP", "SAFE_HOMING"), "arm motion"
+        )
+
+    def gripper_goal_callback(self, _goal_request):
+        return self._gate_goal(("GRAVITY_COMP", "SAFE_HOMING"), "gripper")
+
+    def _gate_goal(self, blocked, label):
+        state = self._hardware.state_machine
+        if state in blocked:
+            self._node.get_logger().warn(f"rejecting {label} goal in state {state}")
+            return GoalResponse.REJECT
         return GoalResponse.ACCEPT
 
-    def cancel_move_to_pose(self, _goal_handle):
-        self._hardware.stop_motion()
+    def cancel_callback(self, _goal_handle):
         return CancelResponse.ACCEPT
 
-    def cancel_follow_joint_trajectory(self, _goal_handle):
-        return CancelResponse.ACCEPT
-
-    def cancel_gripper_command(self, _goal_handle):
-        return CancelResponse.ACCEPT
+    def _fail_move_to_pose(self, goal_handle, result, message, *, canceled=False):
+        if self._hardware.state_machine != "SAFE_HOMING":
+            self._hardware.set_state_machine("IDLE")
+            self._node.publish_arm_status()
+        if canceled:
+            goal_handle.canceled()
+        else:
+            goal_handle.abort()
+        result.success = False
+        result.message = message
+        result.final_pose = self._hardware.current_pose()
+        return result
 
     def execute_move_to_pose(self, goal_handle):
         goal = goal_handle.request
         result = MoveToPose.Result()
 
         try:
-            self._hardware.start_endpos_control()
-            self._hardware.set_state_machine("TRAJ_RUNNING")
-            self._node.publish_arm_status()
             x, y, z, roll, pitch, yaw = pose_to_xyz_rpy(goal.target_pose)
-            ok = self._hardware.endpos_ctrl.move_to_traj(
-                x,
-                y,
-                z,
-                roll,
-                pitch,
-                yaw,
-                float(goal.duration),
+            ok = self._hardware.move_to_pose_traj(
+                x, y, z, roll, pitch, yaw, float(goal.duration)
             )
         except Exception as exc:
             self._hardware.hold_current_position()
-            self._hardware.set_state_machine("IDLE")
-            self._node.publish_arm_status()
-            goal_handle.abort()
-            result.success = False
-            result.message = str(exc)
-            result.final_pose = self._hardware.current_pose()
-            return result
+            return self._fail_move_to_pose(goal_handle, result, str(exc))
 
         if not ok:
-            self._hardware.set_state_machine("IDLE")
-            self._node.publish_arm_status()
-            goal_handle.abort()
-            result.success = False
-            result.message = "trajectory planning failed"
-            result.final_pose = self._hardware.current_pose()
-            return result
+            return self._fail_move_to_pose(
+                goal_handle, result, "trajectory planning failed"
+            )
+        self._node.publish_arm_status()
 
         deadline = time.monotonic() + max(float(goal.duration), 0.0) + 2.0
         while self._hardware.motion_active():
+            if self._hardware.state_machine == "SAFE_HOMING":
+                self._hardware.stop_motion()
+                break
             if goal_handle.is_cancel_requested:
                 self._hardware.stop_motion()
                 self._hardware.hold_current_position()
-                self._hardware.set_state_machine("IDLE")
-                self._node.publish_arm_status()
-                goal_handle.canceled()
-                result.success = False
-                result.message = "move_to_pose canceled"
-                result.final_pose = self._hardware.current_pose()
-                return result
+                return self._fail_move_to_pose(
+                    goal_handle, result, "move_to_pose canceled", canceled=True
+                )
             if time.monotonic() > deadline:
                 self._hardware.stop_motion()
                 self._hardware.hold_current_position()
-                self._hardware.set_state_machine("IDLE")
-                self._node.publish_arm_status()
-                goal_handle.abort()
-                result.success = False
-                result.message = "move_to_pose timeout"
-                result.final_pose = self._hardware.current_pose()
-                return result
+                return self._fail_move_to_pose(
+                    goal_handle, result, "move_to_pose timeout"
+                )
             time.sleep(0.02)
+
+        if self._hardware.state_machine == "SAFE_HOMING":
+            return self._fail_move_to_pose(
+                goal_handle, result, "move_to_pose preempted by safe_home"
+            )
 
         positions = self._hardware.get_joint_positions()
         velocities = self._hardware.get_joint_velocities()
@@ -159,8 +159,7 @@ class ArmActions:
             return result
 
         try:
-            self._hardware.start_endpos_control()
-            self._hardware.set_state_machine("TRAJ_RUNNING")
+            self._hardware.begin_trajectory_stream()
             self._node.publish_arm_status()
             start = time.monotonic()
             point_times = [
@@ -180,6 +179,15 @@ class ArmActions:
                 desired_velocities = np.zeros_like(q1)
 
                 while True:
+                    if self._hardware.state_machine == "SAFE_HOMING":
+                        goal_handle.abort()
+                        result.error_code = (
+                            FollowJointTrajectory.Result.PATH_TOLERANCE_VIOLATED
+                        )
+                        result.error_string = (
+                            "follow_joint_trajectory preempted by safe_home"
+                        )
+                        return result
                     now = time.monotonic() - start
                     ratio = 1.0 if t1 <= t0 else max(0.0, min(1.0, (now - t0) / (t1 - t0)))
                     target = q0 + (q1 - q0) * ratio
@@ -203,7 +211,7 @@ class ArmActions:
                     if goal_handle.is_cancel_requested:
                         self._hardware.hold_current_position()
                         goal_handle.canceled()
-                        result.error_code = FollowJointTrajectory.Result.INVALID_GOAL
+                        result.error_code = FollowJointTrajectory.Result.SUCCESSFUL
                         result.error_string = "follow_joint_trajectory canceled"
                         return result
 
@@ -214,12 +222,13 @@ class ArmActions:
         except Exception as exc:
             self._hardware.hold_current_position()
             goal_handle.abort()
-            result.error_code = FollowJointTrajectory.Result.INVALID_GOAL
-            result.error_string = str(exc)
+            result.error_code = FollowJointTrajectory.Result.PATH_TOLERANCE_VIOLATED
+            result.error_string = f"execution failed: {exc}"
             return result
         finally:
-            self._hardware.set_state_machine("IDLE")
-            self._node.publish_arm_status()
+            if self._hardware.state_machine != "SAFE_HOMING":
+                self._hardware.set_state_machine("IDLE")
+                self._node.publish_arm_status()
 
         goal_handle.succeed()
         result.error_code = FollowJointTrajectory.Result.SUCCESSFUL
@@ -253,8 +262,9 @@ class ArmActions:
         while time.monotonic() - start < 5.0:
             if goal_handle.is_cancel_requested:
                 goal_handle.canceled()
-                result.position = self._hardware.get_gripper_state()[0]
-                result.effort = self._hardware.get_gripper_state()[2]
+                pos, _, effort, _ = self._hardware.get_gripper_state()
+                result.position = pos
+                result.effort = effort
                 result.stalled = stalled
                 result.reached_goal = False
                 return result
@@ -272,8 +282,9 @@ class ArmActions:
             last_pos = pos
             time.sleep(0.05)
 
-        result.position = self._hardware.get_gripper_state()[0]
-        result.effort = self._hardware.get_gripper_state()[2]
+        pos, _, effort, _ = self._hardware.get_gripper_state()
+        result.position = pos
+        result.effort = effort
         result.stalled = stalled
         result.reached_goal = self._hardware.gripper_reached_target()
         goal_handle.succeed()

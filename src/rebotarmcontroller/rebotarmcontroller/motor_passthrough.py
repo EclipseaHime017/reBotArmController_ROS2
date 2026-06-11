@@ -127,10 +127,8 @@ class MotorPassthrough:
 
     def _can_send_lowlevel(self, label: str, *, allow_preempt: bool) -> bool:
         state = self._hardware.state_machine
-        if state == "GRAVITY_COMP":
-            self._node.get_logger().warn(
-                f"rejecting {label} while gravity compensation is running"
-            )
+        if state in ("GRAVITY_COMP", "SAFE_HOMING"):
+            self._node.get_logger().warn(f"rejecting {label} in state {state}")
             return False
         if state == "TRAJ_RUNNING":
             if self._arbitration == "reject" or not allow_preempt:

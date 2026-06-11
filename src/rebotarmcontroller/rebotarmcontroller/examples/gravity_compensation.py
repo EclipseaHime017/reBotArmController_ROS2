@@ -69,6 +69,7 @@ def main() -> None:
         f"/{_NAMESPACE}/disable",
     )
 
+    gc_started = False
     try:
         if not _call_trigger(node, enable_client, "enable"):
             raise SystemExit(1)
@@ -78,18 +79,20 @@ def main() -> None:
             "start gravity compensation",
         ):
             raise SystemExit(1)
+        gc_started = True
         node.get_logger().info("press Ctrl+C to stop gravity compensation")
         while rclpy.ok() and not stop_requested:
             rclpy.spin_once(node, timeout_sec=0.2)
     finally:
-        try:
-            _call_trigger(node, safe_home_client, "safe_home", timeout_sec=35.0)
-        except Exception as exc:
-            node.get_logger().warn(f"safe_home cleanup failed: {exc}")
-        try:
-            _call_trigger(node, disable_client, "disable")
-        except Exception as exc:
-            node.get_logger().warn(f"disable cleanup failed: {exc}")
+        if gc_started:
+            try:
+                _call_trigger(node, safe_home_client, "safe_home", timeout_sec=35.0)
+            except Exception as exc:
+                node.get_logger().warn(f"safe_home cleanup failed: {exc}")
+            try:
+                _call_trigger(node, disable_client, "disable")
+            except Exception as exc:
+                node.get_logger().warn(f"disable cleanup failed: {exc}")
         signal.signal(signal.SIGINT, old_sigint)
         signal.signal(signal.SIGTERM, old_sigterm)
         node.destroy_node()

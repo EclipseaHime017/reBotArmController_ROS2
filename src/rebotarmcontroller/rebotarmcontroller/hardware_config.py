@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import copy
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
 import yaml
+from ament_index_python.packages import (
+    PackageNotFoundError,
+    get_package_share_directory,
+)
 
 
 def resolve_hardware_config(
@@ -26,31 +31,38 @@ def resolve_hardware_config(
 
 
 def _workspace_root() -> Path:
-    return Path(__file__).resolve().parents[3]
-
-
-def _sdk_candidates() -> list[Path]:
-    workspace = _workspace_root()
-    return [
-        workspace / "third_party" / "reBotArm_control_py",
-    ]
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / "third_party" / "reBotArm_control_py").is_dir():
+            return parent
+    return here.parents[3]
 
 
 def _ensure_rebot_sdk_in_syspath() -> Path:
-    for root in _sdk_candidates():
-        if (root / "reBotArm_control_py").is_dir():
-            root_str = str(root)
-            if root_str not in sys.path:
-                sys.path.insert(0, root_str)
-            return root
-    candidates = "\n".join(f"  - {path}" for path in _sdk_candidates())
-    raise FileNotFoundError(
-        "Cannot find reBotArm_control_py. Clone it into one of:\n"
-        f"{candidates}"
-    )
+    root = _workspace_root() / "third_party" / "reBotArm_control_py"
+    if not (root / "reBotArm_control_py").is_dir():
+        raise FileNotFoundError(
+            f"Cannot find reBotArm_control_py at {root}. Clone it first:\n"
+            "  git clone https://github.com/vectorBH6/reBotArm_control_py.git "
+            "third_party/reBotArm_control_py"
+        )
+    root_str = str(root)
+    if root_str not in sys.path:
+        sys.path.insert(0, root_str)
+    return root
 
 
 def _default_hardware_config_path() -> Path:
+    try:
+        path = (
+            Path(get_package_share_directory("rebotarm_bringup"))
+            / "config"
+            / "rebotarm_hardware.yaml"
+        )
+        if path.exists():
+            return path
+    except PackageNotFoundError:
+        pass
     return (
         _workspace_root()
         / "src"
@@ -221,10 +233,14 @@ def _runtime_vector(value: Any, size: int, label: str) -> list[float]:
     return values
 
 
+_resolved_config_dir: Path | None = None
+
+
 def _write_resolved_hardware_config(model: str, data: dict[str, Any]) -> Path:
-    tmp_dir = Path("/tmp") / "rebotarm_ros2"
-    tmp_dir.mkdir(parents=True, exist_ok=True)
-    tmp_path = tmp_dir / f"{model}_hardware.yaml"
+    global _resolved_config_dir
+    if _resolved_config_dir is None:
+        _resolved_config_dir = Path(tempfile.mkdtemp(prefix="rebotarm_ros2_"))
+    tmp_path = _resolved_config_dir / f"{model}_hardware.yaml"
     with open(tmp_path, "w", encoding="utf-8") as f:
         yaml.safe_dump(data, f, sort_keys=False)
     return tmp_path

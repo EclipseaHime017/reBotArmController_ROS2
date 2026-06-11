@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import functools
+import threading
 import time
 
 import numpy as np
@@ -11,6 +13,15 @@ _GRIPPER_GOAL_TOLERANCE_RAD = 0.12
 _GRIPPER_CLOSED_POSITION = 0.0
 
 
+def _locked(method):
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with self._cmd_lock:
+            return method(self, *args, **kwargs)
+
+    return wrapper
+
+
 class HardwareManager:
     """ROS-facing adapter for the new grouped reBotArm SDK."""
 
@@ -20,6 +31,7 @@ class HardwareManager:
         model: str = "",
         channel: str = "",
     ) -> None:
+        self._cmd_lock = threading.RLock()
         hardware_config_path, hardware_data = resolve_hardware_config(
             hardware_config,
             model,
@@ -30,8 +42,13 @@ class HardwareManager:
         from reBotArm_control_py.controllers import RebotArmEndPose
         from reBotArm_control_py.dynamics import compute_generalized_gravity
         from reBotArm_control_py.kinematics import (
+            compute_fk,
             load_robot_model,
+            pad_q_for_model,
         )
+
+        self._compute_fk = compute_fk
+        self._pad_q_for_model = pad_q_for_model
 
         runtime_config = hardware_data["_runtime"]
         control_runtime = runtime_config["control"]
@@ -83,14 +100,11 @@ class HardwareManager:
         self._error_codes: list[str] = []
         self._gravity_comp_active = False
         self._gravity_comp_q_last: np.ndarray | None = None
+        self._homing_thread: int | None = None
 
     # ------------------------------------------------------------------
     # state
     # ------------------------------------------------------------------
-
-    @property
-    def endpos_ctrl(self):
-        return self._endpos_ctrl
 
     @property
     def joint_names(self) -> list[str]:
@@ -120,8 +134,15 @@ class HardwareManager:
     def error_codes(self) -> list[str]:
         return list(self._error_codes)
 
+    @_locked
     def set_state_machine(self, state: str) -> None:
-        if state not in ("IDLE", "TRAJ_RUNNING", "LOWLEVEL_STREAMING", "GRAVITY_COMP"):
+        if state not in (
+            "IDLE",
+            "TRAJ_RUNNING",
+            "LOWLEVEL_STREAMING",
+            "GRAVITY_COMP",
+            "SAFE_HOMING",
+        ):
             raise ValueError(f"unsupported state machine value: {state}")
         self._state_machine = state
 
@@ -129,18 +150,15 @@ class HardwareManager:
     # arm
     # ------------------------------------------------------------------
 
+    @_locked
     def connect(self) -> None:
         if self._connected:
             return
         try:
             self._robot.connect()
-            self._configure_groups_for_endpos()
             if self.has_gripper:
                 self._gripper_target_position = self.get_gripper_state()[0]
-            self.hold_current_position()
-            self._control_output_enabled = True
-            self._robot.start_control_loop(self._endpos_loop_cb)
-            self._endpos_ctrl._running = True
+            self._start_endpos_loop()
             self._connected = True
             self._enabled = True
         except Exception:
@@ -159,13 +177,14 @@ class HardwareManager:
             return
         try:
             self.safe_home()
-            self.stop_motion()
-            self._robot.stop_control_loop()
+            with self._cmd_lock:
+                self._robot.stop_control_loop()
 
             if disable_after_safe_home:
                 self.disable()
 
-            self._robot.disconnect()
+            with self._cmd_lock:
+                self._robot.disconnect()
         finally:
             self._connected = False
             self._enabled = False
@@ -189,13 +208,18 @@ class HardwareManager:
     def get_joint_velocities(self, request: bool = False) -> np.ndarray:
         return self._arm_group.get_velocities(request_feedback=request)
 
+    @_locked
     def hold_current_position(self) -> np.ndarray:
         current = self.get_joint_positions(request=True).copy()
-        self._endpos_ctrl._q_target[:] = current
-        self._endpos_ctrl._qd_target[:] = 0.0
+        if self._state_machine != "SAFE_HOMING":
+            self._endpos_ctrl._q_target[:] = current
+            self._endpos_ctrl._qd_target[:] = 0.0
         return current
 
+    @_locked
     def set_joint_position_target(self, positions) -> None:
+        if self._state_machine == "SAFE_HOMING":
+            raise RuntimeError("rejecting joint target during safe home")
         target = np.asarray(positions, dtype=np.float64).reshape(-1)
         if len(target) != len(self.joint_names):
             raise ValueError(
@@ -205,26 +229,26 @@ class HardwareManager:
         self._endpos_ctrl._q_target[:] = target
         self._endpos_ctrl._qd_target[:] = 0.0
 
+    @_locked
     def start_endpos_control(self) -> None:
         if self._gravity_comp_active:
             raise RuntimeError("stop gravity compensation before starting endpos control")
+        if self._state_machine in ("SAFE_HOMING", "TRAJ_RUNNING"):
+            raise RuntimeError(f"rejecting endpos control in state {self._state_machine}")
 
         if self.control_loop_active:
             self.set_state_machine("IDLE")
             return
 
         self._robot.stop_control_loop()
-        self._configure_groups_for_endpos()
-        self.hold_current_position()
-        self._control_output_enabled = True
-        self._robot.start_control_loop(self._endpos_loop_cb)
-        self._endpos_ctrl._running = True
+        self._start_endpos_loop()
         self._enabled = True
         self.set_state_machine("IDLE")
 
     def enable(self) -> None:
         self.start_endpos_control()
 
+    @_locked
     def disable(self) -> None:
         if self._gravity_comp_active:
             raise RuntimeError("stop gravity compensation before disable")
@@ -237,32 +261,41 @@ class HardwareManager:
         self.set_state_machine("IDLE")
 
     def safe_home(self) -> None:
-        if self._gravity_comp_active:
-            if self._arm_control_mode == "mit" and self.control_loop_active:
-                hold_target = (
-                    self._gravity_comp_q_last.copy()
-                    if self._gravity_comp_q_last is not None
-                    else self._arm_group.get_positions(request_feedback=False).copy()
-                )
-                self._arm_group._mit_kp = self._arm_mit_kp.copy()
-                self._arm_group._mit_kd = self._arm_mit_kd.copy()
-                self._endpos_ctrl._q_target[:] = hold_target
-                self._endpos_ctrl._qd_target[:] = 0.0
-                self._endpos_ctrl._running = True
-                self._control_output_enabled = True
-                self._send_endpos_hold_once()
-                self._robot._ctrl_fn = self._endpos_loop_cb
-                self._gravity_comp_active = False
-                self._gravity_comp_q_last = None
-                self.set_state_machine("IDLE")
+        with self._cmd_lock:
+            self.stop_motion()
+            self.set_state_machine("IDLE")
+            if self._gravity_comp_active:
+                if self._arm_control_mode == "mit" and self.control_loop_active:
+                    hold_target = (
+                        self._gravity_comp_q_last.copy()
+                        if self._gravity_comp_q_last is not None
+                        else self._arm_group.get_positions(request_feedback=False).copy()
+                    )
+                    self._arm_group._mit_kp = self._arm_mit_kp.copy()
+                    self._arm_group._mit_kd = self._arm_mit_kd.copy()
+                    self._endpos_ctrl._q_target[:] = hold_target
+                    self._endpos_ctrl._qd_target[:] = 0.0
+                    self._endpos_ctrl._running = True
+                    self._control_output_enabled = True
+                    self._send_endpos_hold_once()
+                    self._robot._ctrl_fn = self._endpos_loop_cb
+                    self._gravity_comp_active = False
+                    self._gravity_comp_q_last = None
+                else:
+                    self.stop_gravity_compensation()
             else:
-                self.stop_gravity_compensation()
-        else:
-            self.start_endpos_control()
-        if self.has_gripper:
-            self.set_gripper_position(_GRIPPER_CLOSED_POSITION)
-        self._endpos_ctrl.safe_home()
+                self.start_endpos_control()
+            self.set_state_machine("SAFE_HOMING")
+            self._homing_thread = threading.get_ident()
+        try:
+            if self.has_gripper:
+                self.set_gripper_position(_GRIPPER_CLOSED_POSITION)
+            self._endpos_ctrl.safe_home()
+        finally:
+            self._homing_thread = None
+            self.set_state_machine("IDLE")
 
+    @_locked
     def set_zero(self, joint_name: str = "") -> bool:
         self.stop_motion()
         self._robot.stop_control_loop()
@@ -277,6 +310,7 @@ class HardwareManager:
         self.set_state_machine("IDLE")
         return True
 
+    @_locked
     def send_joint_mit_cmd(
         self,
         joint_name: str,
@@ -292,16 +326,8 @@ class HardwareManager:
         target_pos = np.array(q, dtype=np.float64, copy=True)
         target_vel = np.zeros(len(self.joint_names), dtype=np.float64)
         target_tau = np.zeros(len(self.joint_names), dtype=np.float64)
-        target_kp = np.array(
-            self._arm_mit_kp,
-            dtype=np.float64,
-            copy=True,
-        )
-        target_kd = np.array(
-            self._arm_mit_kd,
-            dtype=np.float64,
-            copy=True,
-        )
+        target_kp = np.array(self._arm_mit_kp, dtype=np.float64, copy=True)
+        target_kd = np.array(self._arm_mit_kd, dtype=np.float64, copy=True)
         target_pos[index] = float(pos)
         target_vel[index] = float(vel)
         target_kp[index] = float(kp)
@@ -316,6 +342,7 @@ class HardwareManager:
         )
         self.set_state_machine("LOWLEVEL_STREAMING")
 
+    @_locked
     def send_joint_pos_vel_cmd(
         self,
         joint_name: str,
@@ -327,9 +354,7 @@ class HardwareManager:
         q = self._arm_group.get_positions(request_feedback=True)
         target_pos = np.array(q, dtype=np.float64, copy=True)
         target_vlim = np.array(
-            getattr(self._arm_group, "_pv_vlim"),
-            dtype=np.float64,
-            copy=True,
+            getattr(self._arm_group, "_pv_vlim"), dtype=np.float64, copy=True
         )
         target_pos[index] = float(pos)
         target_vlim[index] = float(vlim)
@@ -337,12 +362,42 @@ class HardwareManager:
         self.set_state_machine("LOWLEVEL_STREAMING")
 
     def current_pose(self):
-        from reBotArm_control_py.kinematics import compute_fk, pad_q_for_model
-
         q, _, _ = self.get_joint_state()
-        q_padded = pad_q_for_model(self._gc_model, q, len(self.joint_names))
-        position, rotation, _ = compute_fk(self._gc_model, q_padded)
+        q_padded = self._pad_q_for_model(self._gc_model, q, len(self.joint_names))
+        position, rotation, _ = self._compute_fk(self._gc_model, q_padded)
         return fk_to_pose(position, rotation)
+
+    def _require_idle(self, what: str) -> None:
+        state = self._state_machine
+        if state in ("TRAJ_RUNNING", "GRAVITY_COMP", "SAFE_HOMING"):
+            raise RuntimeError(f"rejecting {what} in state {state}")
+
+    @_locked
+    def begin_trajectory_stream(self) -> None:
+        self._require_idle("trajectory stream")
+        self.start_endpos_control()
+        self.set_state_machine("TRAJ_RUNNING")
+
+    def move_to_pose_traj(
+        self, x, y, z, roll, pitch, yaw, duration: float
+    ) -> bool:
+        self.begin_trajectory_stream()
+        ok = False
+        try:
+            ok = bool(
+                self._endpos_ctrl.move_to_traj(x, y, z, roll, pitch, yaw, duration)
+            )
+        finally:
+            if not ok and self._state_machine == "TRAJ_RUNNING":
+                self.set_state_machine("IDLE")
+        return ok
+
+    @_locked
+    def move_to_pose_ik(self, x, y, z, roll, pitch, yaw) -> tuple[bool, list[float]]:
+        self._require_idle("IK target")
+        self.start_endpos_control()
+        ok = self._endpos_ctrl.move_to_ik(x, y, z, roll, pitch, yaw)
+        return bool(ok), [float(v) for v in self._endpos_ctrl._q_target]
 
     def get_joint_status_codes(self) -> list[int]:
         codes: list[int] = []
@@ -358,7 +413,12 @@ class HardwareManager:
     # gravity compensation
     # ------------------------------------------------------------------
 
+    @_locked
     def start_gravity_compensation(self) -> None:
+        if self._state_machine in ("TRAJ_RUNNING", "SAFE_HOMING"):
+            raise RuntimeError(
+                f"rejecting gravity compensation in state {self._state_machine}"
+            )
         self.stop_gravity_compensation()
         if not self._enabled:
             self._arm_group.enable()
@@ -386,6 +446,7 @@ class HardwareManager:
         self._robot.start_control_loop(self._gravity_comp_tick, rate=arm_rate)
         self.set_state_machine("GRAVITY_COMP")
 
+    @_locked
     def stop_gravity_compensation(self) -> None:
         if not self._gravity_comp_active:
             return
@@ -425,37 +486,43 @@ class HardwareManager:
 
     def _gravity_comp_tick(self, _robot, dt: float) -> None:
         del dt
-        if not self._gravity_comp_active:
+        if not self._cmd_lock.acquire(blocking=False):
             return
+        try:
+            if not self._gravity_comp_active:
+                return
 
-        from reBotArm_control_py.kinematics import pad_q_for_model
+            q = self._read_gravity_comp_positions(request=True)
+            q_for_model = q * self._gravity_comp_joint_direction
+            q_model = self._pad_q_for_model(
+                self._gc_model, q_for_model, len(self.joint_names)
+            )
+            tau_model = self._gc_compute_generalized_gravity(
+                self._gc_model,
+                q_model,
+                self._gc_data,
+            )[: len(self.joint_names)]
+            tau_motor = (
+                tau_model
+                * self._gravity_comp_joint_direction
+                * self._gravity_comp_tau_scale
+            )
 
-        q = self._read_gravity_comp_positions(request=True)
-        q_for_model = q * self._gravity_comp_joint_direction
-        q_model = pad_q_for_model(self._gc_model, q_for_model, len(self.joint_names))
-        tau_model = self._gc_compute_generalized_gravity(
-            self._gc_model,
-            q_model,
-            self._gc_data,
-        )[: len(self.joint_names)]
-        tau_motor = (
-            tau_model
-            * self._gravity_comp_joint_direction
-            * self._gravity_comp_tau_scale
-        )
-
-        self._arm_group.send_mit(
-            q,
-            vel=np.zeros(len(self.joint_names)),
-            kp=self._gravity_comp_kp,
-            kd=self._gravity_comp_kd,
-            tau=tau_motor,
-        )
+            self._arm_group.send_mit(
+                q,
+                vel=np.zeros(len(self.joint_names)),
+                kp=self._gravity_comp_kp,
+                kd=self._gravity_comp_kd,
+                tau=tau_motor,
+            )
+        finally:
+            self._cmd_lock.release()
 
     # ------------------------------------------------------------------
     # gripper
     # ------------------------------------------------------------------
 
+    @_locked
     def set_gripper_target(self, position: float) -> None:
         self._begin_gripper_command(allow_endpos=True)
         target = float(position)
@@ -506,6 +573,7 @@ class HardwareManager:
         pos = self.get_gripper_state()[0]
         return abs(pos - self._gripper_target_position) < _GRIPPER_GOAL_TOLERANCE_RAD
 
+    @_locked
     def send_gripper_mit_cmd(
         self,
         pos: float,
@@ -525,6 +593,7 @@ class HardwareManager:
         )
         self._gripper_target_position = None
 
+    @_locked
     def send_gripper_pos_vel_cmd(self, pos: float, vlim: float) -> None:
         self._begin_gripper_command()
         self._begin_gripper_lowlevel("pos_vel")
@@ -539,6 +608,11 @@ class HardwareManager:
             raise RuntimeError("rejecting gripper command while arm is disabled")
         if self._gravity_comp_active or self.state_machine == "GRAVITY_COMP":
             raise RuntimeError("rejecting gripper command during gravity compensation")
+        if (
+            self.state_machine == "SAFE_HOMING"
+            and threading.get_ident() != self._homing_thread
+        ):
+            raise RuntimeError("rejecting gripper command during safe home")
         if self.state_machine == "TRAJ_RUNNING":
             raise RuntimeError("rejecting gripper command while trajectory is running")
         if not self.has_gripper or not self._gripper_name:
@@ -557,50 +631,53 @@ class HardwareManager:
             raise RuntimeError("rejecting low-level command while arm is disabled")
         if self._gravity_comp_active or self.state_machine == "GRAVITY_COMP":
             raise RuntimeError("rejecting low-level command during gravity compensation")
+        if self.state_machine == "SAFE_HOMING":
+            raise RuntimeError("rejecting low-level command during safe home")
         if self.state_machine == "TRAJ_RUNNING":
             self.stop_motion()
         self._robot.stop_control_loop()
         self._endpos_ctrl._running = False
 
-        if required_mode == self.mode:
-            self.set_state_machine("LOWLEVEL_STREAMING")
-            return
-        if required_mode == "mit":
-            ok = self._arm_group.mode_mit(
+        if required_mode != self.mode:
+            self._enter_mode(
+                self._arm_group,
+                required_mode,
+                "arm",
                 kp=self._arm_mit_kp,
                 kd=self._arm_mit_kd,
             )
-        elif required_mode == "pos_vel":
-            ok = self._arm_group.mode_pos_vel()
-        else:
-            raise ValueError(f"unsupported low-level mode: {required_mode}")
-        if not ok:
-            raise RuntimeError(f"not all arm joints entered {required_mode} mode")
         self.set_state_machine("LOWLEVEL_STREAMING")
 
     def _begin_gripper_lowlevel(self, required_mode: str) -> None:
-        if required_mode == "mit":
-            ok = self._gripper_group.mode_mit()
-        elif required_mode == "pos_vel":
-            ok = self._gripper_group.mode_pos_vel()
-        else:
-            raise ValueError(f"unsupported gripper mode: {required_mode}")
-        if not ok:
-            raise RuntimeError(f"gripper did not enter {required_mode} mode")
+        self._enter_mode(self._gripper_group, required_mode, "gripper")
         self.set_state_machine("LOWLEVEL_STREAMING")
+
+    @staticmethod
+    def _enter_mode(group, required_mode: str, label: str, **mit_gains) -> None:
+        if required_mode == "mit":
+            ok = group.mode_mit(**mit_gains)
+        elif required_mode == "pos_vel":
+            ok = group.mode_pos_vel()
+        else:
+            raise ValueError(f"unsupported low-level mode: {required_mode}")
+        if not ok:
+            raise RuntimeError(f"{label} did not enter {required_mode} mode")
 
     def _start_endpos_hold(self, target: np.ndarray | None = None) -> None:
         if self.control_loop_active:
             return
+        self._start_endpos_loop(target)
+
+    def _start_endpos_loop(self, target: np.ndarray | None = None) -> None:
         self._configure_groups_for_endpos()
         if target is None:
             self.hold_current_position()
         else:
-            self._endpos_ctrl._q_target[:] = np.array(target, dtype=np.float64)
+            self._endpos_ctrl._q_target[:] = np.asarray(target, dtype=np.float64)
             self._endpos_ctrl._qd_target[:] = 0.0
-        self._endpos_ctrl._running = True
         self._control_output_enabled = True
         self._robot.start_control_loop(self._endpos_loop_cb)
+        self._endpos_ctrl._running = True
 
     def _configure_groups_for_endpos(self) -> None:
         if self._arm_control_mode == "mit":
@@ -616,6 +693,7 @@ class HardwareManager:
                 raise RuntimeError("gripper did not enter mit mode")
             self._gripper_group.enable()
 
+    @_locked
     def stop_motion(self) -> None:
         self._endpos_ctrl._stop_send.set()
         if self._endpos_ctrl._send_thread is not None:
@@ -628,9 +706,14 @@ class HardwareManager:
 
     def _endpos_loop_cb(self, robot, dt: float) -> None:
         del dt
-        if not self._control_output_enabled:
+        if not self._cmd_lock.acquire(blocking=False):
             return
-        self._endpos_ctrl._loop_cb(robot, 0.0)
+        try:
+            if not self._control_output_enabled:
+                return
+            self._endpos_ctrl._loop_cb(robot, 0.0)
+        finally:
+            self._cmd_lock.release()
 
     def _send_endpos_hold_once(self) -> None:
         if self._arm_control_mode == "mit":
