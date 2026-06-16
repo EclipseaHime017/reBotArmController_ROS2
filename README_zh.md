@@ -1,7 +1,7 @@
-# reBot Arm B601-DM ROS2 SDK
+# reBot Arm ROS2 SDK
 
 <p align="center">
-  <img src="./media/rebot_arm_b601.png" alt="reBot Arm B601-DM" width="720">
+  <img src="./media/rebot_arm_b601.png" alt="reBot Arm" width="720">
 </p>
 
 <p align="center">
@@ -11,9 +11,9 @@
 <p align="center">
   <img src="https://img.shields.io/badge/ROS2-Humble | Jazzy-blue.svg" alt="ROS2 Humble">
   <img src="https://img.shields.io/badge/Python-3.10+-blue.svg" alt="Python 3.10">
-  <img src="https://img.shields.io/badge/Version-v0.2.3-brightgreen.svg" alt="Version v0.2.3">
+  <img src="https://img.shields.io/badge/Version-v0.3.0-brightgreen.svg" alt="Version v0.3.0">
   <img src="https://img.shields.io/badge/Platform-Ubuntu%2022.04+-orange.svg" alt="Ubuntu 22.04+">
-  <img src="https://img.shields.io/badge/Hardware-B601--DM-lightgrey.svg" alt="B601-DM">
+  <img src="https://img.shields.io/badge/Hardware-DM%20%7C%20RS-lightgrey.svg" alt="DM and RS">
 </p>
 
 <p align="center">
@@ -28,9 +28,9 @@
 
 ## 项目介绍
 
-当前版本：`v0.2.3`
+当前版本：`v0.3.0`
 
-`rebotarm_ros2` 是 reBot Arm B601-DM 机械臂的 ROS2 SDK 工作空间。它将现有的
+`rebotarm_ros2` 是 reBot Arm B601 DM 和 RS 机械臂的 ROS2 SDK 工作空间。它将新版
 `reBotArm_control_py` Python 控制库封装为 ROS2 topic、service 和 action，
 作为二次开发、上层规划、可视化、重力补偿和单电机调试的统一入口。
 
@@ -49,11 +49,11 @@
 ## 核心功能
 
 - 发布机械臂状态：`/rebotarm/joint_states`、`/rebotarm/arm_status`
-- 提供基础服务：`enable`、`disable`、`set_mode`、`set_zero`、`safe_home`
+- 提供基础服务：`enable`、`disable`、`set_zero`、`safe_home`
 - 支持笛卡尔目标：`MoveToPoseIK` service、`MoveToPose` action
 - 支持标准轨迹接口：`control_msgs/action/FollowJointTrajectory`
 - 支持夹爪控制：`SetGripper` service、`GripperCommand` action
-- 支持单个关节指令：`JointMitCmd`、`JointPosVelCmd`、`JointVelCmd`
+- 支持单个关节指令：`JointMitCmd`、`JointPosVelCmd`
 
 ---
 
@@ -61,14 +61,14 @@
 
 | 组件 | 型号 / 要求 |
 |---|---|
-| 机械臂 | reBot Arm B601-DM |
-| 通信接口 | USB2CAN 串口桥接器 |
+| 机械臂 | reBot Arm B601 DM 或 RS |
+| 通信接口 | DM：USB 串口桥；RS：SocketCAN |
 | 主机 | Ubuntu 22.04+，ROS2，Python 3.10+ |
 
 接线说明：
 
 1. 将 USB2CAN 串口桥接器连接到机械臂 CAN 总线。
-2. 将夹爪电机接入同一条 CAN 总线，不要为夹爪单独打开第二个串口连接。
+2. 将夹爪电机接入同一条 CAN 总线。
 3. 将 USB2CAN 插入主机，并确认设备名：
 
 ```bash
@@ -79,6 +79,13 @@ ls /dev/ttyACM*
 
 ```bash
 sudo chmod 666 /dev/ttyACM0
+```
+
+RS 默认使用 SocketCAN。启动 ROS2 驱动前先拉起 CAN 接口：
+
+```bash
+sudo ip link set can0 up type can bitrate 1000000
+ip -details link show can0
 ```
 
 ---
@@ -197,11 +204,14 @@ rebotarm_ros2/
 ros2 launch rebotarm_bringup bringup.launch.py
 ```
 
-`reBotArmController` 启动时会直接连接真实硬件；如果默认 `/dev/ttyACM0` 不存在，
-需要通过 `channel:=/dev/ttyACM*` 指定正确串口。
+`reBotArmController` 启动时会直接连接真实硬件。默认型号由
+`rebotarm_bringup/config/rebotarm_hardware.yaml` 中的 `default_model` 决定，
+当前为 `dm`。
 
+注意，如果使用 RS 版本的机械臂且未修改`default_model`时，需要显式传入 `model:=rs`，并指定 `channel:=can0`。
 ```bash
 ros2 launch rebotarm_bringup bringup.launch.py channel:={/dev/实际的串口名称}
+ros2 launch rebotarm_bringup bringup.launch.py model:=rs channel:=can0
 ```
 
 如果需要在 RViz 中可视化机械臂运动，可以启用 RViz：
@@ -261,7 +271,8 @@ ros2 action send_goal /rebotarm/move_to_pose rebotarm_msgs/action/MoveToPose \
   "{target_pose: {position: {x: 0.30, y: 0.0, z: 0.30}, orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}}, duration: 2.0}"
 ```
 
-`move_to_pose` action 内部会确保进入 `pos_vel` 控制，并直接调用 SDK `ArmEndPos.move_to_traj(...)`。
+`move_to_pose` action 通过 SDK 末端控制器执行。机械臂控制模式由
+`rebotarm_hardware.yaml` 决定：DM 默认 `posvel`，RS 默认 `mit`。
 
 3. 闭合夹爪并回到安全零位：
 
@@ -369,7 +380,7 @@ q / quit    退出
 
 - topic、service、action 的完整列表和类型
 - `/rebotarm` 命名空间、QoS、单位和状态机约定
-- `JointMitCmd`、`JointPosVelCmd`、`JointVelCmd`、`ArmStatus`、`MoveToPose` 等自定义接口说明
+- `JointMitCmd`、`JointPosVelCmd`、`ArmStatus`、`MoveToPose` 等自定义接口说明
 - 末端位姿移动、夹爪控制、重力补偿、低层 command 的调用示例
 - 上层集成和多机械臂命名注意事项
 
@@ -381,23 +392,30 @@ q / quit    退出
 
 | 文件 | 说明 |
 |---|---|
-| `arm.yaml` | 机械臂 6 个关节的电机、反馈 ID、控制参数 |
-| `gripper.yaml` | 夹爪电机配置，包含电机 ID、反馈 ID、厂商、MIT/POS_VEL 参数 |
+| `rebotarm_hardware.yaml` | ROS2 上层硬件选择和覆盖配置，可选择 DM / RS 并覆盖 SDK 参数 |
 | `driver_params.yaml` | ROS 参数示例 |
 
 常用 launch 参数：
 
 | 参数 | 默认值 | 说明 |
 |---|---|---|
-| `arm_config` | bringup 内置 `arm.yaml` | 机械臂配置路径 |
-| `gripper_config` | bringup 内置 `gripper.yaml` | 夹爪配置路径 |
-| `channel` | 空字符串 | 留空使用 YAML，非空时覆盖串口 |
+| `hardware_config` | bringup 内置 `rebotarm_hardware.yaml` | ROS2 上层硬件配置路径 |
+| `model` | 空字符串 | 留空使用 `default_model`，可设为 `dm` 或 `rs` |
+| `channel` | 空字符串 | 留空使用 YAML，非空时覆盖通信通道 |
 | `joint_state_rate` | `100.0` | `/rebotarm/joint_states` 发布频率 |
 | `cmd_arbitration` | `reject` | 轨迹运行中 arm joint 低层 cmd 仲裁，`reject` 或 `preempt`；gripper 低层 cmd 不抢占 arm 轨迹 |
 | `arm_namespace` | `rebotarm` | ROS 命名空间前缀 |
 | `frame_id` | `base_link` | 机械臂基座坐标系，预留给 TF、视觉和规划集成 |
 | `ee_frame_id` | `end_link` | 末端坐标系，预留给 TF、视觉和规划集成 |
 | `use_rviz` | `false` | 是否启动 bringup RViz |
+| `disable_after_safe_home` | `true` | 该参数控制 safe home 完成后是否失能电机 |
+
+`rebotarm_hardware.yaml` 默认型号配置：
+
+| 型号 | 默认通道 | arm 控制模式 | 夹爪限位 |
+|---|---|---|---|
+| `dm` | `/dev/ttyACM0` | `posvel` | open `-5.0`，close `0.0` |
+| `rs` | `can0` | `mit` | open `5.0`，close `0.0` |
 
 ---
 
@@ -472,6 +490,11 @@ cd your/path/to/rebotarm_ros2
 source install/setup.bash
 ros2 launch rebotarm_moveit_config demo.launch.py
 ```
+注意 RS 版本机械臂在没有修改默认类型机械臂的情况下需要指定：
+
+```bash
+ros2 launch rebotarm_moveit_config demo.launch.py model:=rs
+```
 
 默认会启动：
 
@@ -485,19 +508,13 @@ ros2 launch rebotarm_moveit_config demo.launch.py
 
 RViz 界面会自动弹出并加载机械臂的urdf模型，可以通过左侧的 GUI 控制面板对机械臂的运动进行控制。
 
-如果只需要后台 MoveIt 环境，不启动 RViz：
-
-```bash
-ros2 launch rebotarm_moveit_config demo.launch.py use_rviz:=false
-```
-
 #### 使用 MoveIt 控制 reBotArm
 
 在实际场景中使用 MoveIt 控制 reBotArm 需要先启动带有硬件接口的控制器而不再是虚拟控制器，
 再启动针对实际场景的 MoveIt 环境：
 
 ```bash
-ros2 launch rebotarm_bringup driver.launch.py channel:=/dev/ttyACM0
+ros2 launch rebotarm_bringup driver.launch.py
 ```
 
 另开终端：
@@ -524,6 +541,7 @@ ros2 launch rebotarm_moveit_demos draw_square.launch.py
 
 ```text
 src/rebotarm_moveit_demos/config/draw_square.yaml
+src/rebotarm_moveit_demos/config/draw_square_rs.yaml
 ```
 
 常用参数：
@@ -550,6 +568,7 @@ ros2 launch rebotarm_moveit_demos pick_place.launch.py
 
 ```text
 src/rebotarm_moveit_demos/config/pick_place.yaml
+src/rebotarm_moveit_demos/config/pick_place_rs.yaml
 ```
 
 常用参数：
@@ -561,9 +580,8 @@ src/rebotarm_moveit_demos/config/pick_place.yaml
 | `pick_tcp_rpy` / `place_tcp_rpy` | 抓取和放置时的末端姿态 |
 | `object_dimensions` | MoveIt 场景中物体尺寸，单位 m |
 | `max_gripper_width` | 夹爪最大总开口，默认 `0.09m` |
-| `open_gripper_position` / `closed_gripper_position` | 仿真夹爪单侧开闭关节位置 |
+| `open_gripper_position` / `grasp_gripper_position` / `closed_gripper_position` | 仿真夹爪单侧关节位置 |
 | `hardware_open_gripper_position` / `hardware_closed_gripper_position` | 硬件夹爪电机开闭位置 |
-| `grasp_gripper_to_object_width` | 是否按物体宽度计算夹取位置 |
 
 ### MoveIt 配置文件
 
@@ -571,13 +589,17 @@ src/rebotarm_moveit_demos/config/pick_place.yaml
 |---|---|
 | `rebotarm_moveit_config/config/rebotarm.urdf.xacro` | MoveIt 使用的机器人模型 |
 | `rebotarm_moveit_config/config/rebotarm.srdf` | MoveIt group、end effector、默认状态等语义配置 |
+| `rebotarm_moveit_config/config/rebotarm_rs.urdf.xacro` | MoveIt 使用的 RS 机器人模型 |
+| `rebotarm_moveit_config/config/rebotarm_rs.srdf` | RS MoveIt group 和碰撞语义配置 |
 | `rebotarm_moveit_config/config/kinematics.yaml` | IK solver 配置 |
 | `rebotarm_moveit_config/config/joint_limits.yaml` | MoveIt 规划使用的关节限位 |
-| `rebotarm_moveit_config/config/moveit_controllers.yaml` | MoveIt trajectory execution controller 配置 |
-| `rebotarm_moveit_config/config/ros2_controllers.yaml` | ros2_control controller 配置 |
+| `rebotarm_moveit_config/config/moveit_controllers.yaml` | DM/RS 共用的 MoveIt trajectory execution controller 配置 |
+| `rebotarm_moveit_config/config/ros2_controllers.yaml` | DM/RS 共用的 ros2_control controller 配置 |
 | `rebotarm_moveit_config/config/initial_positions.yaml` | ros2_control 模拟硬件初始关节位置 |
 | `rebotarm_moveit_demos/config/draw_square.yaml` | 画矩形 demo 参数 |
+| `rebotarm_moveit_demos/config/draw_square_rs.yaml` | RS 画矩形 demo 参数 |
 | `rebotarm_moveit_demos/config/pick_place.yaml` | 抓取放置 demo 参数 |
+| `rebotarm_moveit_demos/config/pick_place_rs.yaml` | RS 抓取放置 demo 参数 |
 
 ---
 
@@ -637,6 +659,14 @@ ls /dev/ttyACM*
 ros2 launch rebotarm_bringup bringup.launch.py channel:=/dev/ttyACM1
 ```
 
+RS 需要确认 SocketCAN 接口已经启动：
+
+```bash
+ip -details link show can0
+sudo ip link set can0 up type can bitrate 1000000
+ros2 launch rebotarm_bringup bringup.launch.py model:=rs channel:=can0
+```
+
 ### 权限不足
 
 如果串口存在但无权限：
@@ -652,7 +682,7 @@ sudo usermod -a -G dialout $USER
 确认 URDF mesh 路径已经是：
 
 ```text
-package://rebotarm_bringup/description/meshes/...
+package://rebotarm_bringup/description/...
 ```
 
 ### FastDDS SHM 端口提示

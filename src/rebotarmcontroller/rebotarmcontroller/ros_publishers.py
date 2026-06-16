@@ -4,14 +4,16 @@ from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rebotarm_msgs.msg import ArmStatus, JointMotorState
 from sensor_msgs.msg import JointState
 
-_GRIPPER_OPEN_MOTOR_POSITION = -5.0
-_GRIPPER_CLOSED_MOTOR_POSITION = 0.0
 _GRIPPER_MAX_WIDTH = 0.09
 
 
-def _gripper_motor_to_joint_position(position: float) -> float:
-    span = _GRIPPER_OPEN_MOTOR_POSITION - _GRIPPER_CLOSED_MOTOR_POSITION
-    ratio = 0.0 if span == 0.0 else (position - _GRIPPER_CLOSED_MOTOR_POSITION) / span
+def _gripper_motor_to_joint_position(
+    position: float,
+    open_position: float,
+    close_position: float,
+) -> float:
+    span = open_position - close_position
+    ratio = 0.0 if span == 0.0 else (position - close_position) / span
     return max(0.0, min(_GRIPPER_MAX_WIDTH * 0.5, ratio * _GRIPPER_MAX_WIDTH * 0.5))
 
 
@@ -88,8 +90,19 @@ class JointStatePublisher:
 
         if self._gripper_state_publisher is not None:
             g_pos, g_vel, g_torque, g_status = self._hardware.get_gripper_state()
-            joint_pos = _gripper_motor_to_joint_position(float(g_pos))
-            joint_vel = _gripper_motor_to_joint_position(float(g_pos + g_vel)) - joint_pos
+            joint_pos = _gripper_motor_to_joint_position(
+                float(g_pos),
+                self._hardware.gripper_open_position,
+                self._hardware.gripper_close_position,
+            )
+            joint_vel = (
+                _gripper_motor_to_joint_position(
+                    float(g_pos + g_vel),
+                    self._hardware.gripper_open_position,
+                    self._hardware.gripper_close_position,
+                )
+                - joint_pos
+            )
             msg.name.extend(["gripper_joint1", "gripper_joint2"])
             msg.position.extend([joint_pos, joint_pos])
             msg.velocity.extend([joint_vel, joint_vel])
@@ -106,7 +119,7 @@ class JointStatePublisher:
 
         self._publisher.publish(msg)
 
-    def publish_status(self) -> None:
+    def publish_status(self, *, read_hardware: bool = True) -> None:
         msg = ArmStatus()
         msg.header.stamp = self._node.get_clock().now().to_msg()
         msg.mode = self._hardware.mode
@@ -114,6 +127,9 @@ class JointStatePublisher:
         msg.control_loop_active = self._hardware.control_loop_active
         msg.state_machine = self._hardware.state_machine
         msg.joint_names = self._hardware.joint_names
-        msg.per_joint_status_code = self._hardware.get_joint_status_codes()
+        if read_hardware:
+            msg.per_joint_status_code = self._hardware.get_joint_status_codes()
+        else:
+            msg.per_joint_status_code = [0 for _ in self._hardware.joint_names]
         msg.error_codes = self._hardware.error_codes
         self._status_publisher.publish(msg)

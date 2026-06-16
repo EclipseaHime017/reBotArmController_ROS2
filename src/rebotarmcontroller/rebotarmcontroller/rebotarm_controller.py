@@ -21,26 +21,22 @@ class reBotArmController(Node):
         self.slow_group = MutuallyExclusiveCallbackGroup()
         self.sensor_qos = qos_profile_sensor_data
 
-        self.declare_parameter("arm_config", "")
-        self.declare_parameter("gripper_config", "")
+        self.declare_parameter("hardware_config", "")
+        self.declare_parameter("model", "")
         self.declare_parameter("channel", "")
         self.declare_parameter("joint_state_rate", 100.0)
         self.declare_parameter("arm_namespace", "rebotarm")
         self.declare_parameter("cmd_arbitration", "reject")
         self.declare_parameter("frame_id", "base_link")
         self.declare_parameter("ee_frame_id", "end_link")
-        self.declare_parameter("safe_home_on_shutdown", True)
         self.declare_parameter("disable_after_safe_home", True)
 
-        arm_config = self.get_parameter("arm_config").value or None
-        gripper_config = self.get_parameter("gripper_config").value or None
+        hardware_config = self.get_parameter("hardware_config").value or None
+        model = str(self.get_parameter("model").value or "")
         channel = str(self.get_parameter("channel").value or "")
         self.arm_namespace = str(self.get_parameter("arm_namespace").value or "rebotarm").strip("/")
         joint_state_rate = float(self.get_parameter("joint_state_rate").value)
         cmd_arbitration = str(self.get_parameter("cmd_arbitration").value or "reject")
-        self.safe_home_on_shutdown = bool(
-            self.get_parameter("safe_home_on_shutdown").value
-        )
         self.disable_after_safe_home = bool(
             self.get_parameter("disable_after_safe_home").value
         )
@@ -51,8 +47,8 @@ class reBotArmController(Node):
             cmd_arbitration = "reject"
 
         self.hardware = HardwareManager(
-            arm_cfg=arm_config,
-            gripper_cfg=gripper_config,
+            hardware_config=hardware_config,
+            model=model,
             channel=channel,
         )
         self.hardware.connect()
@@ -77,12 +73,11 @@ class reBotArmController(Node):
             f"joints={self.hardware.joint_names}"
         )
 
-    def publish_arm_status(self) -> None:
-        self.joint_state_publisher.publish_status()
+    def publish_arm_status(self, *, read_hardware: bool = True) -> None:
+        self.joint_state_publisher.publish_status(read_hardware=read_hardware)
 
     def shutdown(self) -> None:
         self.hardware.shutdown(
-            safe_home=self.safe_home_on_shutdown,
             disable_after_safe_home=self.disable_after_safe_home,
         )
 

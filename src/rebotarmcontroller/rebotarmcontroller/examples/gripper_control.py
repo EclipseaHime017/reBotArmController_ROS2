@@ -5,13 +5,10 @@ from __future__ import annotations
 
 import rclpy
 from rclpy.node import Node
-from rebotarm_msgs.srv import SetGripper
+from rebotarm_msgs.srv import GripperCommand
 from std_srvs.srv import Trigger
 
 _NAMESPACE = "rebotarm"
-_OPEN_POSITION_RAD = -5.0
-_CLOSE_POSITION_RAD = 0.0
-_MAX_EFFORT = 0.0
 
 
 class DemoGripperControl(Node):
@@ -20,15 +17,19 @@ class DemoGripperControl(Node):
         self._enabled_by_demo = False
         self._enable = self.create_client(Trigger, f"/{_NAMESPACE}/enable")
         self._disable = self.create_client(Trigger, f"/{_NAMESPACE}/disable")
-        self._client = self.create_client(SetGripper, f"/{_NAMESPACE}/gripper/set")
+        self._open = self.create_client(GripperCommand, f"/{_NAMESPACE}/gripper/open")
+        self._close = self.create_client(GripperCommand, f"/{_NAMESPACE}/gripper/close")
 
     def run(self) -> bool:
         if not self._call_trigger(self._enable, "enable"):
             return False
         self._enabled_by_demo = True
 
-        if not self._client.wait_for_service(timeout_sec=5.0):
-            self.get_logger().error("gripper set service not available")
+        if not self._open.wait_for_service(timeout_sec=5.0):
+            self.get_logger().error("gripper open service not available")
+            return False
+        if not self._close.wait_for_service(timeout_sec=5.0):
+            self.get_logger().error("gripper close service not available")
             return False
 
         self.get_logger().info("commands: o/open, c/close, q/quit")
@@ -42,17 +43,17 @@ class DemoGripperControl(Node):
             if command in ("q", "quit", "exit"):
                 break
             if command in ("o", "open"):
-                self._set_gripper(_OPEN_POSITION_RAD, "open")
+                self._call_gripper(self._open, "open")
                 continue
             if command in ("c", "close"):
-                self._set_gripper(_CLOSE_POSITION_RAD, "close")
+                self._call_gripper(self._close, "close")
                 continue
             self.get_logger().info("commands: o/open, c/close, q/quit")
         return True
 
     def cleanup(self) -> None:
         if self._enabled_by_demo:
-            self._set_gripper(_CLOSE_POSITION_RAD, "close")
+            self._call_gripper(self._close, "close")
             self._call_trigger(self._disable, "disable")
 
     def _call_trigger(self, client, label: str, timeout_sec: float = 5.0) -> bool:
@@ -72,12 +73,10 @@ class DemoGripperControl(Node):
         self.get_logger().info(message if (message := result.message) else f"{label} OK")
         return True
 
-    def _set_gripper(self, position: float, label: str) -> bool:
-        request = SetGripper.Request()
-        request.position = float(position)
-        request.max_effort = _MAX_EFFORT
+    def _call_gripper(self, client, label: str) -> bool:
+        request = GripperCommand.Request()
 
-        future = self._client.call_async(request)
+        future = client.call_async(request)
         rclpy.spin_until_future_complete(self, future)
         result = future.result()
         if result is None:

@@ -36,7 +36,7 @@ class DrawSquare(MoveItDemoBase):
         self.avoid_collisions = bool(self._param("avoid_collisions"))
 
     def run(self) -> bool:
-        if not self._planner.wait_for_service(timeout_sec=10.0):
+        if not self._planner.wait_for_service(timeout_sec=30.0):
             self.node.get_logger().error(
                 "MoveIt service /plan_kinematic_path is not available"
             )

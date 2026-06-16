@@ -17,9 +17,8 @@ pick_place:
     pipeline_id: ompl
     result_timeout: 30.0
     joint_tolerance: 0.01
-    velocity_scaling: 0.2
-    acceleration_scaling: 0.2
-    direct_motion_duration: 1.5
+    velocity_scaling: 1.0
+    acceleration_scaling: 1.0
 
     use_gripper: true
     gripper_action_name: /gripper_controller/follow_joint_trajectory
@@ -29,12 +28,10 @@ pick_place:
       - gripper_joint2
     max_gripper_width: 0.09
     open_gripper_position: 0.045
+    grasp_gripper_position: 0.017
     closed_gripper_position: 0.0
     hardware_open_gripper_position: -5.0
     hardware_closed_gripper_position: 0.0
-    grasp_gripper_to_object_width: true
-    gripper_width_dimension_index: 1
-    gripper_grasp_padding: 0.002
     gripper_motion_duration: 1.0
     gripper_max_effort: 10.0
 

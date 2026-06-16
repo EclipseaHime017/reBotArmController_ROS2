@@ -1,0 +1,59 @@
+# ROS 2 hardware selection and SDK override config.
+#
+# sdk_config is loaded from third_party/reBotArm_control_py/config, then the
+# selected model's overrides are deep-merged on top. Launch parameter channel
+# has highest priority.
+
+default_model: dm
+
+models:
+  dm:
+    sdk_config: rebotarm_dm.yaml
+    overrides:
+      name: reBotArm-B601-DM
+      urdf_path: urdf/reBot-DevArm_fixend_description/urdf/reBot-DevArm_fixend.urdf
+      end_effector_frame: end_link
+      channel: /dev/ttyACM0
+      rate: 500
+      groups:
+        arm:
+          joints: [joint1, joint2, joint3, joint4, joint5, joint6]
+        gripper:
+          joints: [gripper]
+      gripper:
+        position_limits:
+          open: -5.0
+          close: 0.0
+      control:
+        arm_control_mode: posvel
+        mit_kp: [120.0, 120.0, 120.0, 18.0, 18.0, 18.0]
+        mit_kd: [8.0, 8.0, 8.0, 2.0, 2.0, 2.0]
+      gravity_compensation:
+        kp: 2.0
+        kd: 1.5
+
+  rs:
+    sdk_config: rebotarm_rs.yaml
+    overrides:
+      name: reBotArm-RS
+      urdf_path: urdf/00-arm-rs_asm-v3/urdf/00-arm-rs_asm-v3.urdf
+      end_effector_frame: gripper_end
+      channel: can0
+      rate: 500
+      groups:
+        arm:
+          joints: [joint1, joint2, joint3, joint4, joint5, joint6]
+        gripper:
+          joints: [gripper]
+      gripper:
+        position_limits:
+          open: 5.0
+          close: 0.0
+      control:
+        arm_control_mode: mit
+        mit_kp: [50.0, 150.0, 150.0, 50.0, 50.0, 50.0]
+        mit_kd: [3.0, 10.0, 10.0, 5.0, 4.0, 4.0]
+      gravity_compensation:
+        kp: 2.0
+        kd: 1.5
+        tau_scale: [1.0, 1.5, 1.5, 1.0, 1.0, 1.0]

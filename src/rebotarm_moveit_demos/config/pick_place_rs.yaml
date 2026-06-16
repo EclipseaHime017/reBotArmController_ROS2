@@ -1,0 +1,49 @@
+pick_place:
+  ros__parameters:
+    group_name: arm
+    joint_names:
+      - joint1
+      - joint2
+      - joint3
+      - joint4
+      - joint5
+      - joint6
+    zero_point: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    ready_point: [0.0, 0.75, 0.55, 0.0, 0.0, 0.0]
+
+    planning_time: 5.0
+    ik_timeout: 5.0
+    planner_id: RRTConnect
+    pipeline_id: ompl
+    result_timeout: 30.0
+    joint_tolerance: 0.01
+    velocity_scaling: 1.0
+    acceleration_scaling: 1.0
+
+    use_gripper: true
+    gripper_action_name: /gripper_controller/follow_joint_trajectory
+    hardware_gripper_action_name: /rebotarm/gripper/command
+    gripper_joint_names:
+      - gripper_joint1
+      - gripper_joint2
+    max_gripper_width: 0.09
+    open_gripper_position: 0.045
+    grasp_gripper_position: 0.017
+    closed_gripper_position: 0.0
+    hardware_open_gripper_position: 5.0
+    hardware_closed_gripper_position: 0.0
+    gripper_motion_duration: 1.0
+    gripper_max_effort: 10.0
+
+    object_id: demo_object
+    object_frame_id: base_link
+    pick_position: [0.28, 0.10, 0.0]
+    pick_tcp_rpy: [0.0, 1.57, 0.0]
+    place_tcp_rpy: [0.0, 1.57, 0.0]
+    object_dimensions: [0.03, 0.03, 0.06]
+    attached_link_name: gripper_tcp
+    touch_links:
+      - gripper_end
+      - gripper_tcp
+      - gripper_left
+      - gripper_right

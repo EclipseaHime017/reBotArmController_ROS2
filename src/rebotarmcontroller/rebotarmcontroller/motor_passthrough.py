@@ -4,7 +4,6 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy
 from rebotarm_msgs.msg import (
     JointMitCmd,
     JointPosVelCmd,
-    JointVelCmd,
 )
 
 
@@ -38,11 +37,6 @@ class MotorPassthrough:
                     msg.vlim,
                 ),
             ),
-            (
-                JointVelCmd,
-                "cmd/vel",
-                lambda hw, name, msg: hw.send_joint_vel_cmd(name, msg.vel),
-            ),
         )
         gripper_commands = (
             (
@@ -60,11 +54,6 @@ class MotorPassthrough:
                 JointPosVelCmd,
                 "cmd/pos_vel",
                 lambda hw, msg: hw.send_gripper_pos_vel_cmd(msg.pos, msg.vlim),
-            ),
-            (
-                JointVelCmd,
-                "cmd/vel",
-                lambda hw, msg: hw.send_gripper_vel_cmd(msg.vel),
             ),
         )
 
@@ -138,10 +127,8 @@ class MotorPassthrough:
 
     def _can_send_lowlevel(self, label: str, *, allow_preempt: bool) -> bool:
         state = self._hardware.state_machine
-        if state == "GRAVITY_COMP":
-            self._node.get_logger().warn(
-                f"rejecting {label} while gravity compensation is running"
-            )
+        if state in ("GRAVITY_COMP", "SAFE_HOMING"):
+            self._node.get_logger().warn(f"rejecting {label} in state {state}")
             return False
         if state == "TRAJ_RUNNING":
             if self._arbitration == "reject" or not allow_preempt:
@@ -152,6 +139,5 @@ class MotorPassthrough:
             self._node.get_logger().warn(
                 f"preempting trajectory for {label}"
             )
-            self._hardware.endpos_ctrl._stop_send.set()
-            self._hardware.endpos_ctrl._moving = False
+            self._hardware.stop_motion()
         return True

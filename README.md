@@ -1,7 +1,7 @@
-# reBot Arm B601-DM ROS2 SDK
+# reBot Arm ROS2 SDK
 
 <p align="center">
-  <img src="./media/rebot_arm_b601.png" alt="reBot Arm B601-DM" width="720">
+  <img src="./media/rebot_arm_b601.png" alt="reBot Arm" width="720">
 </p>
 
 <p align="center">
@@ -11,9 +11,9 @@
 <p align="center">
   <img src="https://img.shields.io/badge/ROS2-Humble | Jazzy-blue.svg" alt="ROS2 Humble">
   <img src="https://img.shields.io/badge/Python-3.10+-blue.svg" alt="Python 3.10">
-  <img src="https://img.shields.io/badge/Version-v0.2.3-brightgreen.svg" alt="Version v0.2.3">
+  <img src="https://img.shields.io/badge/Version-v0.3.0-brightgreen.svg" alt="Version v0.3.0">
   <img src="https://img.shields.io/badge/Platform-Ubuntu%2022.04+-orange.svg" alt="Ubuntu 22.04+">
-  <img src="https://img.shields.io/badge/Hardware-B601--DM-lightgrey.svg" alt="B601-DM">
+  <img src="https://img.shields.io/badge/Hardware-DM%20%7C%20RS-lightgrey.svg" alt="DM and RS">
 </p>
 
 <p align="center">
@@ -28,12 +28,12 @@
 
 ## Overview
 
-Current version: `v0.2.3`
+Current version: `v0.3.0`
 
-`rebotarm_ros2` is the ROS2 SDK workspace for the reBot Arm B601-DM. It wraps the
-existing `reBotArm_control_py` Python control library into ROS2 topics, services
-and actions, providing a unified entry point for development, planning, RViz
-visualization, gravity compensation and per-motor debugging.
+`rebotarm_ros2` is the ROS2 SDK workspace for reBot Arm B601 DM and RS models. It
+wraps the current `reBotArm_control_py` Python control library into ROS2 topics,
+services and actions, providing a unified entry point for development, planning,
+RViz visualization, gravity compensation and per-motor debugging.
 
 The workspace contains five ROS2 packages:
 
@@ -50,11 +50,11 @@ The workspace contains five ROS2 packages:
 ## Features
 
 - Publishes arm status: `/rebotarm/joint_states`, `/rebotarm/arm_status`
-- Provides core services: `enable`, `disable`, `set_mode`, `set_zero`, `safe_home`
+- Provides core services: `enable`, `disable`, `set_zero`, `safe_home`
 - Supports Cartesian targets: `MoveToPoseIK` service, `MoveToPose` action
 - Supports the standard `control_msgs/action/FollowJointTrajectory` interface
 - Supports gripper control: `SetGripper` service, `GripperCommand` action
-- Supports single-joint commands: `JointMitCmd`, `JointPosVelCmd`, `JointVelCmd`
+- Supports single-joint commands: `JointMitCmd`, `JointPosVelCmd`
 
 ---
 
@@ -62,15 +62,15 @@ The workspace contains five ROS2 packages:
 
 | Item | Requirement |
 |---|---|
-| Arm | reBot Arm B601-DM |
-| Communication | USB2CAN serial bridge |
+| Arm | reBot Arm B601 DM or RS |
+| Communication | DM: USB serial bridge; RS: SocketCAN interface |
 | Host | Ubuntu 22.04+, ROS2, Python 3.10+ |
 
 Wiring:
 
 1. Connect the USB2CAN serial bridge to the arm CAN bus.
-2. Connect the gripper motor to the same CAN bus. Do not open a second serial connection for the gripper.
-3. Plug USB2CAN into the host and check the device name:
+2. Connect the gripper motor to the same CAN bus.
+3. Plug the USB2CAN bridge into the host and check the device name:
 
 ```bash
 ls /dev/ttyACM*
@@ -80,6 +80,13 @@ For temporary serial access:
 
 ```bash
 sudo chmod 666 /dev/ttyACM0
+```
+
+RS uses SocketCAN by default. Bring up the CAN interface before starting the ROS2 driver:
+
+```bash
+sudo ip link set can0 up type can bitrate 1000000
+ip -details link show can0
 ```
 
 ---
@@ -162,7 +169,15 @@ rebotarm_ros2/
     │   ├── srv/
     │   └── action/
     ├── rebotarmcontroller/
-    │   └── rebotarmcontroller/
+    │   ├── rebotarmcontroller/
+    │   │   ├── rebotarm_controller.py
+    │   │   ├── hardware_manager.py
+    │   │   ├── ros_publishers.py
+    │   │   ├── ros_services.py
+    │   │   ├── ros_actions.py
+    │   │   ├── motor_passthrough.py
+    │   │   ├── conversions.py
+    │   │   └── examples/
     ├── rebotarm_bringup/
     │   ├── launch/
     │   ├── config/
@@ -195,11 +210,16 @@ Start the controller node, `robot_state_publisher`, and optionally RViz:
 ros2 launch rebotarm_bringup bringup.launch.py
 ```
 
-`reBotArmController` connects to real hardware on startup. If the default
-`/dev/ttyACM0` does not exist, pass the correct serial device with `channel`.
+`reBotArmController` connects to real hardware on startup. The default model is
+defined by `rebotarm_bringup/config/rebotarm_hardware.yaml` and is currently
+`dm`.
+
+If you use the RS arm and have not changed `default_model`, pass `model:=rs`
+explicitly and set `channel:=can0`.
 
 ```bash
 ros2 launch rebotarm_bringup bringup.launch.py channel:=/dev/ttyACM1
+ros2 launch rebotarm_bringup bringup.launch.py model:=rs channel:=can0
 ```
 
 Enable RViz to visualize the arm motion:
@@ -262,8 +282,9 @@ ros2 action send_goal /rebotarm/move_to_pose rebotarm_msgs/action/MoveToPose \
   "{target_pose: {position: {x: 0.30, y: 0.0, z: 0.30}, orientation: {x: 0.0, y: 0.0, z: 0.0, w: 1.0}}, duration: 2.0}"
 ```
 
-`move_to_pose` switches to `pos_vel` mode internally and calls
-`ArmEndPos.move_to_traj(...)` from the SDK.
+`move_to_pose` executes through the SDK end-pose controller. The arm control
+mode is selected by `rebotarm_hardware.yaml`: DM defaults to `posvel`, RS
+defaults to `mit`.
 
 3. Close the gripper and return to safe home:
 
@@ -370,23 +391,30 @@ It includes:
 
 | File | Description |
 |---|---|
-| `arm.yaml` | Motor, feedback ID and control parameters for the 6 arm joints |
-| `gripper.yaml` | Gripper motor config, including motor ID, feedback ID and control parameters |
+| `rebotarm_hardware.yaml` | ROS2 hardware selection and overrides for DM / RS SDK configs |
 | `driver_params.yaml` | ROS parameter example |
 
 Common launch parameters:
 
 | Parameter | Default | Description |
 |---|---|---|
-| `arm_config` | built-in `arm.yaml` | Arm config path |
-| `gripper_config` | built-in `gripper.yaml` | Gripper config path |
-| `channel` | empty string | Use YAML value when empty; override serial device when set |
+| `hardware_config` | built-in `rebotarm_hardware.yaml` | ROS2 hardware config path |
+| `model` | empty string | Use `default_model` when empty; set `dm` or `rs` explicitly |
+| `channel` | empty string | Use YAML value when empty; override communication channel when set |
 | `joint_state_rate` | `100.0` | Publish rate for `/rebotarm/joint_states` |
 | `cmd_arbitration` | `reject` | Low-level command arbitration during arm trajectory execution |
 | `arm_namespace` | `rebotarm` | ROS namespace prefix |
 | `frame_id` | `base_link` | Base frame ID reserved for TF, perception and planning |
 | `ee_frame_id` | `end_link` | End-effector frame ID reserved for TF, perception and planning |
 | `use_rviz` | `false` | Start bringup RViz |
+| `disable_after_safe_home` | `true` | Controls whether motors are disabled after safe home completes |
+
+Model defaults in `rebotarm_hardware.yaml`:
+
+| Model | Default channel | Arm mode | Gripper limits |
+|---|---|---|---|
+| `dm` | `/dev/ttyACM0` | `posvel` | open `-5.0`, close `0.0` |
+| `rs` | `can0` | `mit` | open `5.0`, close `0.0` |
 
 ---
 
@@ -469,6 +497,12 @@ source install/setup.bash
 ros2 launch rebotarm_moveit_config demo.launch.py
 ```
 
+For the RS arm, pass `model:=rs` when the default model has not been changed:
+
+```bash
+ros2 launch rebotarm_moveit_config demo.launch.py model:=rs
+```
+
 By default this starts:
 
 - `move_group`
@@ -482,19 +516,13 @@ By default this starts:
 RViz opens automatically and loads the robot URDF model. You can control motion
 through the panel on the left side of the GUI.
 
-To run the MoveIt environment without RViz:
-
-```bash
-ros2 launch rebotarm_moveit_config demo.launch.py use_rviz:=false
-```
-
 #### Use MoveIt with reBotArm hardware
 
 For the real robot, first start the controller with the hardware interface
 instead of the virtual controller, then start the hardware MoveIt environment:
 
 ```bash
-ros2 launch rebotarm_bringup driver.launch.py channel:=/dev/ttyACM0
+ros2 launch rebotarm_bringup driver.launch.py
 ```
 
 In another terminal:
@@ -524,6 +552,7 @@ Default parameters:
 
 ```text
 src/rebotarm_moveit_demos/config/draw_square.yaml
+src/rebotarm_moveit_demos/config/draw_square_rs.yaml
 ```
 
 Common parameters:
@@ -550,6 +579,7 @@ Default parameters:
 
 ```text
 src/rebotarm_moveit_demos/config/pick_place.yaml
+src/rebotarm_moveit_demos/config/pick_place_rs.yaml
 ```
 
 Common parameters:
@@ -561,9 +591,8 @@ Common parameters:
 | `pick_tcp_rpy` / `place_tcp_rpy` | TCP orientation for pick and place |
 | `object_dimensions` | Planning-scene object dimensions in meters |
 | `max_gripper_width` | Maximum total gripper opening, default `0.09m` |
-| `open_gripper_position` / `closed_gripper_position` | Simulated single-side gripper joint open/close positions |
+| `open_gripper_position` / `grasp_gripper_position` / `closed_gripper_position` | Simulated single-side gripper joint positions |
 | `hardware_open_gripper_position` / `hardware_closed_gripper_position` | Hardware gripper motor open/close positions |
-| `grasp_gripper_to_object_width` | Compute the grasp position from object width |
 
 ### MoveIt configuration files
 
@@ -571,13 +600,17 @@ Common parameters:
 |---|---|
 | `rebotarm_moveit_config/config/rebotarm.urdf.xacro` | Robot model used by MoveIt |
 | `rebotarm_moveit_config/config/rebotarm.srdf` | MoveIt groups, end effector and default states |
+| `rebotarm_moveit_config/config/rebotarm_rs.urdf.xacro` | RS robot model used by MoveIt |
+| `rebotarm_moveit_config/config/rebotarm_rs.srdf` | RS MoveIt groups and collision semantics |
 | `rebotarm_moveit_config/config/kinematics.yaml` | IK solver configuration |
 | `rebotarm_moveit_config/config/joint_limits.yaml` | Joint limits used by MoveIt planning |
-| `rebotarm_moveit_config/config/moveit_controllers.yaml` | MoveIt trajectory execution controller config |
-| `rebotarm_moveit_config/config/ros2_controllers.yaml` | ros2_control controller config |
+| `rebotarm_moveit_config/config/moveit_controllers.yaml` | Shared DM/RS MoveIt trajectory execution controller config |
+| `rebotarm_moveit_config/config/ros2_controllers.yaml` | Shared DM/RS ros2_control controller config |
 | `rebotarm_moveit_config/config/initial_positions.yaml` | Initial joint positions for simulated hardware |
 | `rebotarm_moveit_demos/config/draw_square.yaml` | Draw-square demo parameters |
+| `rebotarm_moveit_demos/config/draw_square_rs.yaml` | RS draw-square demo parameters |
 | `rebotarm_moveit_demos/config/pick_place.yaml` | Pick-place demo parameters |
+| `rebotarm_moveit_demos/config/pick_place_rs.yaml` | RS pick-place demo parameters |
 
 ---
 
@@ -641,6 +674,14 @@ Then override `channel`:
 ros2 launch rebotarm_bringup bringup.launch.py channel:=/dev/ttyACM1
 ```
 
+For RS, check that the SocketCAN interface is up:
+
+```bash
+ip -details link show can0
+sudo ip link set can0 up type can bitrate 1000000
+ros2 launch rebotarm_bringup bringup.launch.py model:=rs channel:=can0
+```
+
 ### Permission denied
 
 If the serial device exists but cannot be opened:
@@ -656,7 +697,7 @@ Log out and log back in for the group change to take effect.
 Check that URDF mesh paths use:
 
 ```text
-package://rebotarm_bringup/description/meshes/...
+package://rebotarm_bringup/description/...
 ```
 
 ### FastDDS SHM port warning

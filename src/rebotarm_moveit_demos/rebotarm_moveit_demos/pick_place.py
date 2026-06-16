@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sys
-import time
 from control_msgs.action import FollowJointTrajectory, GripperCommand
 from geometry_msgs.msg import Point, Pose, PoseStamped, Quaternion
 from moveit_msgs.msg import (
@@ -13,9 +12,10 @@ from moveit_msgs.msg import (
     JointConstraint,
     MoveItErrorCodes,
     PlanningScene,
+    PlanningSceneComponents,
     RobotState,
 )
-from moveit_msgs.srv import ApplyPlanningScene, GetMotionPlan
+from moveit_msgs.srv import ApplyPlanningScene, GetMotionPlan, GetPlanningScene
 import rclpy
 from rclpy.action import ActionClient
 from shape_msgs.msg import SolidPrimitive
@@ -38,6 +38,10 @@ class PickPlace(MoveItDemoBase):
             ApplyPlanningScene,
             "/apply_planning_scene",
         )
+        self._get_planning_scene = self.node.create_client(
+            GetPlanningScene,
+            "/get_planning_scene",
+        )
         self._gripper_trajectory = ActionClient(
             self.node,
             FollowJointTrajectory,
@@ -47,16 +51,6 @@ class PickPlace(MoveItDemoBase):
             self.node,
             GripperCommand,
             str(self._param("hardware_gripper_action_name")),
-        )
-        self._collision_object_publisher = self.node.create_publisher(
-            CollisionObject,
-            "/collision_object",
-            10,
-        )
-        self._attached_collision_object_publisher = self.node.create_publisher(
-            AttachedCollisionObject,
-            "/attached_collision_object",
-            10,
         )
 
     def run(self) -> bool:
@@ -70,6 +64,11 @@ class PickPlace(MoveItDemoBase):
                 "MoveIt service /apply_planning_scene is not available"
             )
             return False
+        if not self._get_planning_scene.wait_for_service(timeout_sec=10.0):
+            self.node.get_logger().error(
+                "MoveIt service /get_planning_scene is not available"
+            )
+            return False
         if not self.wait_for_ik_service():
             return False
         if not self.wait_for_execute_server():
@@ -80,7 +79,11 @@ class PickPlace(MoveItDemoBase):
 
         zero_point = [float(value) for value in self._param("zero_point")]
         ready_point = [float(value) for value in self._param("ready_point")]
-        current = self._current_joint_values(zero_point)
+        current = self.current_joint_values(
+            zero_point,
+            "zero_point",
+            log_current=True,
+        )
 
         if not self._command_gripper("close"):
             return False
@@ -115,46 +118,30 @@ class PickPlace(MoveItDemoBase):
             return False
         if not self._allow_object_touch_collisions(True):
             return False
-        if not self._move_joints("pick", current, pick_target):
+        if not self._plan_to_joints("pick", current, pick_target):
             return False
         current = pick_target
         if not self._command_gripper("grasp"):
             return False
         if not self._attach_object(object_pose):
             return False
-        if not self._move_joints("ready", current, ready_point):
+        if not self._plan_to_joints("ready", current, ready_point):
             return False
         current = ready_point
-        if not self._move_joints("place", current, place_target):
+        if not self._plan_to_joints("place", current, place_target):
             return False
         current = place_target
         if not self._detach_object_at_place():
             return False
         if not self._command_gripper("open"):
             return False
-        if not self._move_joints("ready", current, ready_point):
+        if not self._allow_object_touch_collisions(False):
+            return False
+        if not self._plan_to_joints("ready", current, ready_point):
             return False
 
         self.node.get_logger().info("pick demo finished")
         return True
-
-    def _move_joints(
-        self,
-        label: str,
-        start_values: list[float],
-        goal_values: list[float],
-    ) -> bool:
-        self.node.get_logger().info(f"move to {label}")
-        current_values = self.current_joint_values(start_values, "current joint state")
-        if self._joint_values_close(current_values, goal_values):
-            self.node.get_logger().info(f"already at {label}, skip motion")
-            return True
-        duration = float(self._param("direct_motion_duration"))
-        self.node.get_logger().info(f"execute direct joint motion to {label}")
-        return self.execute_trajectory(
-            self.joint_trajectory(current_values, goal_values, duration),
-            float(self._param("result_timeout")),
-        )
 
     def _plan_to_joints(
         self,
@@ -217,13 +204,6 @@ class PickPlace(MoveItDemoBase):
     ) -> bool:
         tolerance = float(self._param("joint_tolerance"))
         return all(abs(a - b) <= tolerance for a, b in zip(first, second))
-
-    def _current_joint_values(self, fallback_values: list[float]) -> list[float]:
-        return self.current_joint_values(
-            fallback_values,
-            "zero_point",
-            log_current=True,
-        )
 
     def _joint_constraints(self, joint_values: list[float]) -> Constraints:
         tolerance = float(self._param("joint_tolerance"))
@@ -324,18 +304,7 @@ class PickPlace(MoveItDemoBase):
         return self._clamp_gripper_width(float(self._param("closed_gripper_position")))
 
     def _grasp_gripper_position(self) -> float:
-        if not bool(self._param("grasp_gripper_to_object_width")):
-            return self._closed_gripper_position()
-        dimensions = [float(value) for value in self._param("object_dimensions")]
-        width_index = int(self._param("gripper_width_dimension_index"))
-        object_width = dimensions[width_index]
-        padding = float(self._param("gripper_grasp_padding"))
-        target = self._clamp_gripper_width((object_width + padding) * 0.5)
-        self.node.get_logger().info(
-            f"computed gripper grasp position {target:.4f} "
-            f"for object width {object_width:.4f}"
-        )
-        return target
+        return self._clamp_gripper_width(float(self._param("grasp_gripper_position")))
 
     def _clamp_gripper_width(self, position: float) -> float:
         low = float(self._param("closed_gripper_position"))
@@ -375,32 +344,19 @@ class PickPlace(MoveItDemoBase):
         object_id = str(self._param("object_id"))
         attached_link_name = str(self._param("attached_link_name"))
 
-        self._attached_collision_object_publisher.publish(
+        scene = PlanningScene(is_diff=True, robot_state=RobotState(is_diff=True))
+        scene.robot_state.attached_collision_objects.append(
             AttachedCollisionObject(
                 link_name=attached_link_name,
-                object=CollisionObject(
-                    id=object_id,
-                    header=Header(frame_id=attached_link_name),
-                    operation=CollisionObject.REMOVE,
-                ),
+                object=CollisionObject(id=object_id, operation=CollisionObject.REMOVE),
             )
         )
-        self._collision_object_publisher.publish(
-            CollisionObject(
-                id=object_id,
-                header=Header(frame_id=str(self._param("object_frame_id"))),
-                operation=CollisionObject.REMOVE,
-            )
+        scene.world.collision_objects.append(
+            CollisionObject(id=object_id, operation=CollisionObject.REMOVE)
         )
 
-        deadline = time.monotonic() + 0.5
-        while rclpy.ok() and time.monotonic() < deadline:
-            rclpy.spin_once(self.node, timeout_sec=0.05)
-
-        self.node.get_logger().info(
-            f"published reset for stale object '{object_id}'"
-        )
-        return True
+        self.node.get_logger().info(f"clear stale object '{object_id}'")
+        return self._apply_planning_scene(scene)
 
     def pick_place_joint_target(
         self,
@@ -433,7 +389,7 @@ class PickPlace(MoveItDemoBase):
             seed_values,
             attached_link,
             timeout_sec,
-            False,
+            True,
             f"{label} IK for {attached_link} pose "
             f"[{target_pose.position.x:.3f}, {target_pose.position.y:.3f}, "
             f"{target_pose.position.z:.3f}]",
@@ -496,28 +452,55 @@ class PickPlace(MoveItDemoBase):
     def _allow_object_touch_collisions(self, allowed: bool) -> bool:
         object_id = str(self._param("object_id"))
         touch_links = [str(link) for link in self._param("touch_links")]
-        entry_names = [object_id] + touch_links
 
         state = "allow" if allowed else "forbid"
         self.node.get_logger().info(
             f"{state} collisions between '{object_id}' and {touch_links}"
         )
+        acm = self._current_allowed_collision_matrix()
+        if acm is None:
+            return False
+        for link in touch_links:
+            self._set_allowed_collision(acm, object_id, link, allowed)
+
         scene = PlanningScene(is_diff=True)
-        scene.allowed_collision_matrix = AllowedCollisionMatrix(
-            entry_names=entry_names,
-            entry_values=[
-                AllowedCollisionEntry(
-                    enabled=[
-                        allowed
-                        and name != other
-                        and (name == object_id or other == object_id)
-                        for other in entry_names
-                    ]
-                )
-                for name in entry_names
-            ],
-        )
+        scene.allowed_collision_matrix = acm
         return self._apply_planning_scene(scene)
+
+    def _current_allowed_collision_matrix(self) -> AllowedCollisionMatrix | None:
+        request = GetPlanningScene.Request()
+        request.components.components = PlanningSceneComponents.ALLOWED_COLLISION_MATRIX
+        future = self._get_planning_scene.call_async(request)
+        if not self.wait(future, float(self._param("result_timeout"))):
+            self.node.get_logger().error("Timed out reading planning scene ACM")
+            return None
+        response = future.result()
+        if response is None:
+            self.node.get_logger().error("MoveIt returned an empty planning scene")
+            return None
+        return response.scene.allowed_collision_matrix
+
+    @staticmethod
+    def _set_allowed_collision(
+        acm: AllowedCollisionMatrix,
+        first: str,
+        second: str,
+        allowed: bool,
+    ) -> None:
+        for name in (first, second):
+            if name in acm.entry_names:
+                continue
+            acm.entry_names.append(name)
+            for entry in acm.entry_values:
+                entry.enabled.append(False)
+            acm.entry_values.append(
+                AllowedCollisionEntry(enabled=[False] * len(acm.entry_names))
+            )
+
+        first_index = acm.entry_names.index(first)
+        second_index = acm.entry_names.index(second)
+        acm.entry_values[first_index].enabled[second_index] = allowed
+        acm.entry_values[second_index].enabled[first_index] = allowed
 
     def _object_primitive(self) -> SolidPrimitive:
         return SolidPrimitive(

@@ -3,7 +3,7 @@ import signal
 from ament_index_python.packages import get_package_share_directory
 from importlib.machinery import SourceFileLoader
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, EmitEvent, RegisterEventHandler
+from launch.actions import DeclareLaunchArgument, EmitEvent, OpaqueFunction, RegisterEventHandler
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown, matches_action
@@ -30,14 +30,44 @@ def generate_launch_description():
         default_value="true",
         description="Start RViz with the MoveIt motion planning plugin",
     )
+    model_arg = DeclareLaunchArgument(
+        "model",
+        default_value="dm",
+        description="Robot model to load: dm or rs",
+    )
+
+    return LaunchDescription(
+        [
+            rviz_config_arg,
+            use_rviz_arg,
+            model_arg,
+            OpaqueFunction(function=_launch_setup),
+        ]
+    )
+
+
+def _launch_setup(context, *args, **kwargs):
+    del args, kwargs
+    model = LaunchConfiguration("model").perform(context).strip().lower()
+    is_rs = model == "rs"
 
     moveit_config = (
         MoveItConfigsBuilder("rebotarm", package_name="rebotarm_moveit_config")
-        .robot_description(file_path="config/rebotarm.urdf.xacro")
-        .robot_description_semantic(file_path="config/rebotarm.srdf")
+        .robot_description(
+            file_path=(
+                "config/rebotarm_rs.urdf.xacro"
+                if is_rs
+                else "config/rebotarm.urdf.xacro"
+            )
+        )
+        .robot_description_semantic(
+            file_path="config/rebotarm_rs.srdf" if is_rs else "config/rebotarm.srdf"
+        )
         .robot_description_kinematics(file_path="config/kinematics.yaml")
         .joint_limits(file_path="config/joint_limits.yaml")
-        .trajectory_execution(file_path="config/moveit_controllers.yaml")
+        .trajectory_execution(
+            file_path="config/moveit_controllers.yaml"
+        )
         .planning_scene_monitor(
             publish_robot_description=True,
             publish_robot_description_semantic=True,
@@ -129,16 +159,16 @@ def generate_launch_description():
         ],
     )
 
-    return LaunchDescription(
+    nodes = [
+        static_tf_node,
+        robot_state_publisher_node,
+        ros2_control_node,
+        joint_state_broadcaster_spawner,
+        rebotarm_controller_spawner,
+    ]
+    nodes.append(gripper_controller_spawner)
+    nodes.extend(
         [
-            rviz_config_arg,
-            use_rviz_arg,
-            static_tf_node,
-            robot_state_publisher_node,
-            ros2_control_node,
-            joint_state_broadcaster_spawner,
-            rebotarm_controller_spawner,
-            gripper_controller_spawner,
             move_group_node,
             rviz_node,
             RegisterEventHandler(
@@ -164,3 +194,4 @@ def generate_launch_description():
             ),
         ]
     )
+    return nodes

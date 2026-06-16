@@ -10,10 +10,8 @@ find_package(std_msgs REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/JointMitCmd.msg"
   "msg/JointPosVelCmd.msg"
-  "msg/JointVelCmd.msg"
   "msg/JointMotorState.msg"
   "msg/ArmStatus.msg"
-  "srv/SetMode.srv"
   "srv/SetZero.srv"
   "srv/MoveToPoseIK.srv"
   "srv/SetGripper.srv"

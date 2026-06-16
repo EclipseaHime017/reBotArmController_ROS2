@@ -1,6 +1,6 @@
 # reBotArm ROS2 API Reference
 
-适用版本：`v0.2.3`
+适用版本：`v0.3.0`
 
 本文档是 `rebotarm_ros2` 的 ROS2 API 参考文档。它面向二次开发、上层规划、视觉抓取、调试工具和脚本集成，按主流 API 文档习惯组织为：约定、Topic、Service、Action、低层 Command、消息定义、调用示例和集成注意事项。
 
@@ -87,8 +87,8 @@ ros2 launch rebotarm_bringup bringup.launch.py arm_namespace:=left_arm
 
 SDK 路径上的运动接口直接复用 `reBotArm_control_py` 的 IK、轨迹规划和控制逻辑：
 
-- `/rebotarm/move_to_pose_ik` 调用 SDK `ArmEndPos.move_to_ik(...)`。
-- `/rebotarm/move_to_pose` 调用 SDK `ArmEndPos.move_to_traj(...)`。
+- `/rebotarm/move_to_pose_ik` 调用 SDK `RebotArmEndPose.move_to_ik(...)`。
+- `/rebotarm/move_to_pose` 调用 SDK `RebotArmEndPose.move_to_traj(...)`。
 
 这两个接口不在 ROS 层重复实现 IK、轨迹规划或 joint limit 逻辑。标准外部关节轨迹接口
 `/rebotarm/follow_joint_trajectory` 会接收上层直接给出的关节轨迹；ROS action 负责基础消息格式、
@@ -134,7 +134,7 @@ sensor_msgs/msg/JointState
 
 QoS：sensor-data
 
-说明：发布 6 轴机械臂关节状态。`name` 顺序来自底层 `RobotArm.joint_names`，通常为：
+说明：发布 6 轴机械臂关节状态。`name` 顺序来自底层 `RebotArm.groups["arm"].joint_names`，通常为：
 
 ```text
 joint1, joint2, joint3, joint4, joint5, joint6
@@ -264,7 +264,7 @@ std_srvs/srv/Trigger
 ```
 
 说明：调用前会先停止重力补偿；如果夹爪已初始化，会先闭合夹爪到 `0.0rad`，
-然后切回 `pos_vel` 控制并调用 SDK `ArmEndPos.safe_home()`，让机械臂以安全速度回零。
+然后切回 `pos_vel` 控制并调用 SDK `RebotArmEndPose.safe_home()`，让机械臂以安全速度回零。
 
 示例：
 
@@ -333,7 +333,7 @@ ros2 service call /rebotarm/set_zero rebotarm_msgs/srv/SetZero "{joint_name: 'jo
 rebotarm_msgs/srv/MoveToPoseIK
 ```
 
-说明：调用 SDK `ArmEndPos.move_to_ik(...)` 求解并更新内部目标关节角，适合 IK 预检查或小步位姿调整。它不是完整轨迹 action；应用层需要更完整的轨迹执行时优先使用 `/rebotarm/move_to_pose`。
+说明：调用 SDK `RebotArmEndPose.move_to_ik(...)` 求解并更新内部目标关节角，适合 IK 预检查或小步位姿调整。它不是完整轨迹 action；应用层需要更完整的轨迹执行时优先使用 `/rebotarm/move_to_pose`。
 
 请求：
 
@@ -447,7 +447,7 @@ ros2 service call /rebotarm/gripper/close rebotarm_msgs/srv/GripperCommand \
 std_srvs/srv/Trigger
 ```
 
-说明：启动 controller 内部重力补偿闭环。闭环直接使用底层 `RobotArm.get_positions/get_state/mit`，不通过外部 ROS topic 重写控制器。
+说明：启动 controller 内部重力补偿闭环。闭环直接使用底层 `RebotArm` 的 `arm` group 状态和 MIT 命令，不通过外部 ROS topic 重写控制器。
 
 实现要点：
 
@@ -487,7 +487,7 @@ ros2 service call /rebotarm/gravity_compensation/stop std_srvs/srv/Trigger
 rebotarm_msgs/action/MoveToPose
 ```
 
-说明：末端笛卡尔位姿 action。内部直接调用 SDK `ArmEndPos.move_to_traj(...)`，
+说明：末端笛卡尔位姿 action。内部直接调用 SDK `RebotArmEndPose.move_to_traj(...)`，
 action 接受目标后返回当前 SDK `get_positions()` / `get_velocities()` 读数到 `message`。
 
 Goal：
@@ -523,13 +523,13 @@ control_msgs/action/FollowJointTrajectory
 ```
 
 说明：标准关节轨迹 action 兼容入口。当前实现会读取 trajectory 中的所有 point，
-按每个 point 的 `time_from_start` 更新 SDK `ArmEndPos` 的关节目标；实际发送由 SDK
+按每个 point 的 `time_from_start` 更新 SDK `RebotArmEndPose` 的关节目标；实际发送由 SDK
 的 `pos_vel` 控制循环完成。action 存活期间会把当前 `/joint_states` 对应的
 positions / velocities 填入 `FollowJointTrajectory.Feedback.actual`。
 
 约束：
 
-- `joint_names` 必须与底层 `RobotArm.joint_names` 顺序完全一致。
+- `joint_names` 必须与底层 `RebotArm.groups["arm"].joint_names` 顺序完全一致。
 - 每个 trajectory point 必须包含完整 `positions`。
 - 当前按 point 之间的时间线性更新关节目标，不在 ROS 层重复实现 IK 或 URDF 合法性检查。
 
